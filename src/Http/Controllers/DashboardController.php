@@ -26,8 +26,8 @@ class DashboardController extends Controller
             return response()->json([]);
         }
 
-        $token = normalize_debug_token((string) $request->query('token', ''));
-        if (! $token || normalize_debug_token($meta['token'] ?? null) !== $token) {
+        $token = (string) $request->query('token', '');
+        if ($token === '' || ($meta['token'] ?? null) !== $token) {
             return response()->json([], 403);
         }
 
