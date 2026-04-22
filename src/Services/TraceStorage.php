@@ -11,26 +11,15 @@ class TraceStorage
         $this->ensureDirectoryExists();
     }
 
-    public function createSessionMeta(
-        string $sessionId,
-        string $token,
-        string $status,
-        CarbonImmutable $expiresAt,
-        ?string $ownerId = null,
-        string $matchType = 'token'
-    ): array
+    public function createSessionMeta(string $sessionId, string $token, string $status, CarbonImmutable $expiresAt): array
     {
         $meta = [
             'session_id' => $sessionId,
             'token' => $token,
-            'match_type' => $matchType,
             'status' => $status,
             'expires_at' => $expiresAt->toIso8601String(),
             'created_at' => CarbonImmutable::now('UTC')->toIso8601String(),
         ];
-        if ($ownerId !== null) {
-            $meta['owner_id'] = $ownerId;
-        }
 
         file_put_contents($this->metaPath($sessionId), json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         file_put_contents($this->logPath($sessionId), '', FILE_APPEND | LOCK_EX);
@@ -91,15 +80,11 @@ class TraceStorage
         );
     }
 
-    public function findActiveSessionForScope(string $matchType, string $token): ?array
+    public function findActiveSessionForToken(string $token): ?array
     {
         foreach ($this->allMetaFiles() as $metaFile) {
             $meta = json_decode((string) file_get_contents($metaFile), true);
             if (! is_array($meta)) {
-                continue;
-            }
-
-            if (($meta['match_type'] ?? 'token') !== $matchType) {
                 continue;
             }
 

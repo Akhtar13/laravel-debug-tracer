@@ -7,7 +7,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -21,28 +20,17 @@ class DebugSessionController extends Controller
     {
         abort_unless(config('debug-tracer.enabled', false), 403, 'Debug tracer disabled.');
 
-        $validator = Validator::make($request->all(), [
-            'session_type' => ['required', 'in:api,panel'],
-            'barrier_token' => ['required_if:session_type,api', 'nullable', 'string'],
-            'panel_session_id' => ['required_if:session_type,panel', 'nullable', 'string'],
-        ]);
-        $validator->validate();
-
-        $sessionType = (string) $request->input('session_type');
-        $scopeValue = $sessionType === 'api'
-            ? (string) $request->input('barrier_token')
-            : (string) $request->input('panel_session_id');
+        $token = $request->input('token', $this->resolveToken($request));
+        abort_unless($token, 422, 'Unable to resolve trace token.');
 
         $sessionId = (string) Str::uuid();
         $expiresAt = CarbonImmutable::now('UTC')->addMinutes((int) config('debug-tracer.session_ttl_minutes', 30));
-        $ownerId = $request->user() ? (string) $request->user()->getAuthIdentifier() : null;
 
-        $meta = $this->storage->createSessionMeta($sessionId, $scopeValue, 'active', $expiresAt, $ownerId, $sessionType);
+        $meta = $this->storage->createSessionMeta($sessionId, $token, 'active', $expiresAt);
 
         return response()->json([
             'session_id' => $sessionId,
-            'session_type' => $meta['match_type'],
-            'scope_value' => $meta['token'],
+            'token' => $token,
             'status' => $meta['status'],
             'expires_at' => $meta['expires_at'],
         ]);
@@ -84,18 +72,17 @@ class DebugSessionController extends Controller
 
     private function isOwner(Request $request, array $meta): bool
     {
-        $ownerId = $meta['owner_id'] ?? null;
+        return ($meta['token'] ?? null) === $this->resolveToken($request);
+    }
 
-        if ($ownerId !== null) {
-            return $request->user() && (string) $request->user()->getAuthIdentifier() === (string) $ownerId;
-        }
+    private function resolveToken(Request $request): ?string
+    {
+        $mode = config('debug-tracer.matching_mode', 'token');
 
-        $matchType = (string) ($meta['match_type'] ?? 'api');
-
-        if ($matchType === 'panel') {
-            return ($meta['token'] ?? null) === ($request->hasSession() ? $request->session()->getId() : null);
-        }
-
-        return ($meta['token'] ?? null) === ($request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')));
+        return match ($mode) {
+            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
+            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+            default => $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+        };
     }
 }

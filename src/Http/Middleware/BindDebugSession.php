@@ -18,7 +18,13 @@ class BindDebugSession
             return $next($request);
         }
 
-        $meta = $this->findMatchingSession($request);
+        $token = $this->resolveToken($request);
+
+        if (! $token) {
+            return $next($request);
+        }
+
+        $meta = $this->storage->findActiveSessionForToken($token);
 
         if (! $meta) {
             return $next($request);
@@ -29,24 +35,14 @@ class BindDebugSession
         return $next($request);
     }
 
-    private function findMatchingSession(Request $request): ?array
+    private function resolveToken(Request $request): ?string
     {
-        $apiToken = $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'));
-        if (is_string($apiToken) && $apiToken !== '') {
-            $session = $this->storage->findActiveSessionForScope('api', $apiToken);
-            if ($session) {
-                return $session;
-            }
-        }
+        $mode = config('debug-tracer.matching_mode', 'token');
 
-        if ($request->hasSession()) {
-            $panelSessionId = $request->session()->getId();
-            $session = $this->storage->findActiveSessionForScope('panel', $panelSessionId);
-            if ($session) {
-                return $session;
-            }
-        }
-
-        return null;
+        return match ($mode) {
+            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
+            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+            default => $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+        };
     }
 }

@@ -36,17 +36,4 @@ class TraceStorageTest extends TestCase
         $lines = file($storage->logPath('abc123'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         $this->assertCount(2, $lines);
     }
-
-    public function test_it_finds_active_session_by_scope_type_and_token(): void
-    {
-        $storage = new TraceStorage(config('debug-tracer.storage_path'));
-        $storage->createSessionMeta('api-session', 'abc-token', 'active', CarbonImmutable::now()->addMinutes(30), null, 'api');
-        $storage->createSessionMeta('panel-session', 'abc-session-id', 'active', CarbonImmutable::now()->addMinutes(30), null, 'panel');
-
-        $matchedApi = $storage->findActiveSessionForScope('api', 'abc-token');
-        $matchedPanel = $storage->findActiveSessionForScope('panel', 'abc-session-id');
-
-        $this->assertSame('api-session', $matchedApi['session_id']);
-        $this->assertSame('panel-session', $matchedPanel['session_id']);
-    }
 }

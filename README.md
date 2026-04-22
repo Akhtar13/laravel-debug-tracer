@@ -59,6 +59,7 @@ For panel tracing:
 
 The user must provide `barrier_token` (api) or `panel_session_id` (panel); the package does not auto-pick these at start.
 2. Perform actions under the same barrier token or panel session id.
+
 3. Export logs: `GET /debug/export/{session_id}`
 4. Stop session: `POST /debug/stop`
 
