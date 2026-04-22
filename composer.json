@@ -20,7 +20,10 @@
   "autoload": {
     "psr-4": {
       "Akhtar\\LaravelDebugTracer\\": "src/"
-    }
+    },
+    "files": [
+      "src/helpers.php"
+    ]
   },
   "authors": [
     {
@@ -29,19 +32,19 @@
     }
   ],
   "require-dev": {
-    "orchestra/testbench": "^8.0|^9.0",
+    "orchestra/testbench": "^8.0|^9.0|^10.0",
     "phpunit/phpunit": "^10.0|^11.0",
     "laravel/pint": "^1.0"
   },
   "autoload-dev": {
     "psr-4": {
-      "Akhtar\\DebugTracer\\Tests\\": "tests/"
+      "Akhtar\\LaravelDebugTracer\\Tests\\": "tests/"
     }
   },
   "extra": {
     "laravel": {
       "providers": [
-        "Akhtar\\DebugTracer\\DebugTracerServiceProvider"
+        "Akhtar\\LaravelDebugTracer\\DebugTracerServiceProvider"
       ]
     }
   },
