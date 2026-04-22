@@ -14,6 +14,7 @@ abstract class TestCase extends BaseTestCase
 
     protected function getEnvironmentSetUp($app): void
     {
+        $app['config']->set('app.key', 'base64:'.base64_encode(random_bytes(32)));
         $app['config']->set('debug-tracer.enabled', true);
         $app['config']->set('debug-tracer.route_middleware', []);
         $app['config']->set('debug-tracer.storage_path', __DIR__.'/../tmp/debug-traces');

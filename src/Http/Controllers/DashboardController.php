@@ -26,8 +26,8 @@ class DashboardController extends Controller
             return response()->json([]);
         }
 
-        $token = (string) $request->query('token', '');
-        if ($token === '' || ($meta['token'] ?? null) !== $token) {
+        $token = $this->resolveToken($request);
+        if (! $token || normalize_debug_token($meta['token'] ?? null) !== $token) {
             return response()->json([], 403);
         }
 
@@ -40,5 +40,20 @@ class DashboardController extends Controller
         $lines = file($path, FILE_IGNORE_NEW_LINES);
 
         return response()->json(array_map(fn($l) => json_decode($l, true), $lines));
+    }
+
+    private function resolveToken(Request $request): ?string
+    {
+        $mode = config('debug-tracer.matching_mode', 'token');
+
+        $token = match ($mode) {
+            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
+            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+            default => $request->input('token')
+                ?: $request->bearerToken()
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+        };
+
+        return normalize_debug_token($token);
     }
 }

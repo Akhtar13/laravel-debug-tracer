@@ -114,7 +114,11 @@
         }
 
         pollHandle = setInterval(async () => {
-            const res = await fetch(`/debug-dashboard/logs/${sessionId}?token=${encodeURIComponent(token)}`);
+            const res = await fetch(`/debug-dashboard/logs/${sessionId}`, {
+                headers: {
+                    'X-Debug-Token': token
+                }
+            });
 
             if (!res.ok) {
                 setStatus('Unable to load logs for this token/session.', true);
