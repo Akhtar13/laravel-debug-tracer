@@ -13,6 +13,8 @@ class TraceStorage
 
     public function createSessionMeta(string $sessionId, string $token, string $status, CarbonImmutable $expiresAt): array
     {
+        $token = (string) normalize_debug_token($token);
+
         $meta = [
             'session_id' => $sessionId,
             'token' => $token,
@@ -88,7 +90,7 @@ class TraceStorage
                 continue;
             }
 
-            if (($meta['token'] ?? null) !== $token) {
+            if (normalize_debug_token($meta['token'] ?? null) !== normalize_debug_token($token)) {
                 continue;
             }
 

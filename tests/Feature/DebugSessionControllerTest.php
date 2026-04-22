@@ -44,4 +44,31 @@ class DebugSessionControllerTest extends TestCase
         $export->assertOk();
         $this->assertStringContainsString('application/x-ndjson', $export->headers->get('content-type'));
     }
+
+    public function test_it_matches_bearer_token_formats_for_stop_and_export(): void
+    {
+        $plain = '97kEy5Q7usVBBDbCKcG0uQzJgAmKMBpqiDVMmGUSd844ce11';
+        $withPrefix = '3011|'.$plain;
+
+        $start = $this->postJson('/debug/start', ['token' => 'Bearer '.$withPrefix]);
+        $start->assertOk();
+
+        $sessionId = $start->json('session_id');
+
+        $this->postJson('/debug/stop', ['session_id' => $sessionId], [
+            'Authorization' => 'Bearer '.$withPrefix,
+        ])->assertOk();
+
+        $restart = $this->postJson('/debug/start', ['token' => 'Bearer '.$plain]);
+        $restart->assertOk();
+        $sessionId = $restart->json('session_id');
+
+        /** @var TraceStorage $storage */
+        $storage = app(TraceStorage::class);
+        $storage->appendEvent($sessionId, ['type' => 'request', 'url' => '/orders']);
+
+        $export = $this->get('/debug/export/'.$sessionId.'?token=Bearer '.$withPrefix);
+        $export->assertOk();
+        $this->assertStringContainsString('application/x-ndjson', $export->headers->get('content-type'));
+    }
 }
