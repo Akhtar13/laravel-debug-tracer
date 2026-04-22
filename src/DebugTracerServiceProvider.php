@@ -28,6 +28,8 @@ class DebugTracerServiceProvider extends ServiceProvider
 
         $this->app->singleton(DebugTracer::class, fn () => new DebugTracer($this->app->make(TraceStorage::class)));
         $this->app->singleton('tracer', fn () => $this->app->make(DebugTracer::class));
+
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'debug-tracer');
     }
 
     public function boot(): void
