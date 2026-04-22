@@ -82,7 +82,9 @@ class DebugSessionController extends Controller
         return match ($mode) {
             'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
             'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+            default => $request->input('token')
+                ?: $request->bearerToken()
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
         };
     }
 }
