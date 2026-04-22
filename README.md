@@ -39,8 +39,27 @@ Jobs automatically receive `debug_session_id` when a traced request dispatches t
 
 ## Usage flow
 
-1. Start a session: `POST /debug/start`
-2. Perform user actions under the same token/user/header scope.
+1. Start a session and choose the session type:
+
+```json
+{
+  "session_type": "api",
+  "barrier_token": "user-login-token"
+}
+```
+
+For panel tracing:
+
+```json
+{
+  "session_type": "panel",
+  "panel_session_id": "laravel-session-id-from-gui"
+}
+```
+
+The user must provide `barrier_token` (api) or `panel_session_id` (panel); the package does not auto-pick these at start.
+2. Perform actions under the same barrier token or panel session id.
+
 3. Export logs: `GET /debug/export/{session_id}`
 4. Stop session: `POST /debug/stop`
 
