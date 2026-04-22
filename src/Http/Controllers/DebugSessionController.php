@@ -20,7 +20,7 @@ class DebugSessionController extends Controller
     {
         abort_unless(config('debug-tracer.enabled', false), 403, 'Debug tracer disabled.');
 
-        $token = $request->input('token', $this->resolveToken($request));
+        $token = normalize_debug_token($request->input('token', $this->resolveToken($request)));
         abort_unless($token, 422, 'Unable to resolve trace token.');
 
         $sessionId = (string) Str::uuid();
@@ -72,17 +72,21 @@ class DebugSessionController extends Controller
 
     private function isOwner(Request $request, array $meta): bool
     {
-        return ($meta['token'] ?? null) === $this->resolveToken($request);
+        return normalize_debug_token($meta['token'] ?? null) === $this->resolveToken($request);
     }
 
     private function resolveToken(Request $request): ?string
     {
         $mode = config('debug-tracer.matching_mode', 'token');
 
-        return match ($mode) {
+        $token = match ($mode) {
             'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
             'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
+            default => $request->input('token')
+                ?: $request->bearerToken()
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
         };
+
+        return normalize_debug_token($token);
     }
 }
