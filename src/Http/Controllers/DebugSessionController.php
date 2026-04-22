@@ -22,25 +22,27 @@ class DebugSessionController extends Controller
         abort_unless(config('debug-tracer.enabled', false), 403, 'Debug tracer disabled.');
 
         $validator = Validator::make($request->all(), [
-            'match_type' => ['nullable', 'in:token,user,header'],
-            'token' => ['nullable', 'string'],
+            'session_type' => ['required', 'in:api,panel'],
+            'barrier_token' => ['required_if:session_type,api', 'nullable', 'string'],
+            'panel_session_id' => ['required_if:session_type,panel', 'nullable', 'string'],
         ]);
         $validator->validate();
 
-        $matchType = (string) $request->input('match_type', config('debug-tracer.matching_mode', 'token'));
-        $token = $this->resolveTokenForType($request, $matchType);
-        abort_unless($token, 422, 'Unable to resolve trace token.');
+        $sessionType = (string) $request->input('session_type');
+        $scopeValue = $sessionType === 'api'
+            ? (string) $request->input('barrier_token')
+            : (string) $request->input('panel_session_id');
 
         $sessionId = (string) Str::uuid();
         $expiresAt = CarbonImmutable::now('UTC')->addMinutes((int) config('debug-tracer.session_ttl_minutes', 30));
         $ownerId = $request->user() ? (string) $request->user()->getAuthIdentifier() : null;
 
-        $meta = $this->storage->createSessionMeta($sessionId, $token, 'active', $expiresAt, $ownerId, $matchType);
+        $meta = $this->storage->createSessionMeta($sessionId, $scopeValue, 'active', $expiresAt, $ownerId, $sessionType);
 
         return response()->json([
             'session_id' => $sessionId,
-            'token' => $token,
-            'match_type' => $meta['match_type'],
+            'session_type' => $meta['match_type'],
+            'scope_value' => $meta['token'],
             'status' => $meta['status'],
             'expires_at' => $meta['expires_at'],
         ]);
@@ -88,17 +90,12 @@ class DebugSessionController extends Controller
             return $request->user() && (string) $request->user()->getAuthIdentifier() === (string) $ownerId;
         }
 
-        $matchType = (string) ($meta['match_type'] ?? config('debug-tracer.matching_mode', 'token'));
+        $matchType = (string) ($meta['match_type'] ?? 'api');
 
-        return ($meta['token'] ?? null) === $this->resolveTokenForType($request, $matchType);
-    }
+        if ($matchType === 'panel') {
+            return ($meta['token'] ?? null) === ($request->hasSession() ? $request->session()->getId() : null);
+        }
 
-    private function resolveTokenForType(Request $request, string $mode): ?string
-    {
-        return match ($mode) {
-            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
-            'header' => $request->input('token') ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->input('token') ?: $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-        };
+        return ($meta['token'] ?? null) === ($request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')));
     }
 }

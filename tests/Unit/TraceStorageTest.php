@@ -40,13 +40,13 @@ class TraceStorageTest extends TestCase
     public function test_it_finds_active_session_by_scope_type_and_token(): void
     {
         $storage = new TraceStorage(config('debug-tracer.storage_path'));
-        $storage->createSessionMeta('token-session', 'abc-token', 'active', CarbonImmutable::now()->addMinutes(30), null, 'token');
-        $storage->createSessionMeta('header-session', 'abc-token', 'active', CarbonImmutable::now()->addMinutes(30), null, 'header');
+        $storage->createSessionMeta('api-session', 'abc-token', 'active', CarbonImmutable::now()->addMinutes(30), null, 'api');
+        $storage->createSessionMeta('panel-session', 'abc-session-id', 'active', CarbonImmutable::now()->addMinutes(30), null, 'panel');
 
-        $matchedToken = $storage->findActiveSessionForScope('token', 'abc-token');
-        $matchedHeader = $storage->findActiveSessionForScope('header', 'abc-token');
+        $matchedApi = $storage->findActiveSessionForScope('api', 'abc-token');
+        $matchedPanel = $storage->findActiveSessionForScope('panel', 'abc-session-id');
 
-        $this->assertSame('token-session', $matchedToken['session_id']);
-        $this->assertSame('header-session', $matchedHeader['session_id']);
+        $this->assertSame('api-session', $matchedApi['session_id']);
+        $this->assertSame('panel-session', $matchedPanel['session_id']);
     }
 }

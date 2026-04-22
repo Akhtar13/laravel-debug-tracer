@@ -22,10 +22,11 @@ class DebugSessionControllerTest extends TestCase
 
     public function test_it_starts_and_stops_a_session(): void
     {
-        $start = $this->postJson('/debug/start', ['match_type' => 'token', 'token' => 'usr_42']);
+        $start = $this->postJson('/debug/start', ['session_type' => 'api', 'barrier_token' => 'usr_42']);
         $start->assertOk()
             ->assertJsonPath('status', 'active')
-            ->assertJsonPath('match_type', 'token');
+            ->assertJsonPath('session_type', 'api')
+            ->assertJsonPath('scope_value', 'usr_42');
 
         $sessionId = $start->json('session_id');
 
@@ -35,7 +36,7 @@ class DebugSessionControllerTest extends TestCase
 
     public function test_it_exports_ndjson(): void
     {
-        $start = $this->postJson('/debug/start', ['match_type' => 'token', 'token' => 'usr_77']);
+        $start = $this->postJson('/debug/start', ['session_type' => 'api', 'barrier_token' => 'usr_77']);
         $sessionId = $start->json('session_id');
 
         /** @var TraceStorage $storage */
@@ -47,9 +48,16 @@ class DebugSessionControllerTest extends TestCase
         $this->assertStringContainsString('application/x-ndjson', $export->headers->get('content-type'));
     }
 
-    public function test_start_requires_token_for_token_match_type(): void
+    public function test_start_requires_barrier_token_for_api_session_type(): void
     {
-        $response = $this->postJson('/debug/start', ['match_type' => 'token']);
+        $response = $this->postJson('/debug/start', ['session_type' => 'api']);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_start_requires_panel_session_id_for_panel_session_type(): void
+    {
+        $response = $this->postJson('/debug/start', ['session_type' => 'panel']);
 
         $response->assertStatus(422);
     }

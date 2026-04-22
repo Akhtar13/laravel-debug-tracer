@@ -31,25 +31,17 @@ class BindDebugSession
 
     private function findMatchingSession(Request $request): ?array
     {
-        $userToken = $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null;
-        if ($userToken) {
-            $session = $this->storage->findActiveSessionForScope('user', $userToken);
+        $apiToken = $request->bearerToken() ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'));
+        if (is_string($apiToken) && $apiToken !== '') {
+            $session = $this->storage->findActiveSessionForScope('api', $apiToken);
             if ($session) {
                 return $session;
             }
         }
 
-        $headerToken = $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'));
-        if (is_string($headerToken) && $headerToken !== '') {
-            $session = $this->storage->findActiveSessionForScope('header', $headerToken);
-            if ($session) {
-                return $session;
-            }
-        }
-
-        $bearerToken = $request->bearerToken();
-        if (is_string($bearerToken) && $bearerToken !== '') {
-            $session = $this->storage->findActiveSessionForScope('token', $bearerToken);
+        if ($request->hasSession()) {
+            $panelSessionId = $request->session()->getId();
+            $session = $this->storage->findActiveSessionForScope('panel', $panelSessionId);
             if ($session) {
                 return $session;
             }
