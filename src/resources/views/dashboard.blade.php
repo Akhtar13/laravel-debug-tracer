@@ -1,156 +1,655 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Debug Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Tracer — Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: monospace; padding: 20px; }
-        button { margin-right: 10px; }
-        #logs { background:#111; color:#0f0; padding:10px; height:400px; overflow:auto; }
+        :root {
+            --bg:        #0a0c0f;
+            --surface:   #111418;
+            --border:    #1e2530;
+            --border-hi: #2d3848;
+            --text:      #c8d4e0;
+            --muted:     #4a5a6e;
+            --accent:    #00e5ff;
+            --accent-dim:#005f6b;
+            --green:     #00ff88;
+            --red:       #ff4060;
+            --amber:     #ffb300;
+            --glow:      0 0 20px rgba(0,229,255,.12);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Grid noise bg ── */
+        body::before {
+            content: '';
+            position: fixed; inset: 0; z-index: 0;
+            background-image:
+                    linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+            pointer-events: none;
+        }
+
+        /* ── Top bar ── */
+        header {
+            position: relative; z-index: 10;
+            display: flex; align-items: center; gap: 16px;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,12,15,.92);
+            backdrop-filter: blur(12px);
+        }
+
+        .logo-dot {
+            width: 10px; height: 10px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent), 0 0 28px rgba(0,229,255,.4);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%,100% { opacity: 1; transform: scale(1); }
+            50%      { opacity: .5; transform: scale(.75); }
+        }
+
+        header h1 {
+            font-family: 'Syne', sans-serif;
+            font-size: 17px; font-weight: 800;
+            letter-spacing: .06em;
+            color: #fff;
+        }
+        header h1 span { color: var(--accent); }
+
+        .badge {
+            margin-left: auto;
+            padding: 4px 10px;
+            border: 1px solid var(--border-hi);
+            border-radius: 4px;
+            font-size: 10px;
+            color: var(--muted);
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        /* ── Layout ── */
+        main {
+            position: relative; z-index: 1;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 0;
+            height: calc(100vh - 57px);
+        }
+
+        /* ── Sidebar ── */
+        aside {
+            grid-row: 1 / 3;
+            border-right: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+            background: var(--surface);
+        }
+
+        .section-label {
+            padding: 18px 20px 8px;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: .16em;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .field-group {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex; flex-direction: column; gap: 6px;
+        }
+
+        label {
+            font-size: 10px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        input[type="text"] {
+            background: var(--bg);
+            border: 1px solid var(--border-hi);
+            border-radius: 4px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            padding: 8px 10px;
+            width: 100%;
+            outline: none;
+            transition: border-color .2s, box-shadow .2s;
+        }
+        input[type="text"]::placeholder { color: var(--muted); }
+        input[type="text"]:focus {
+            border-color: var(--accent-dim);
+            box-shadow: 0 0 0 2px rgba(0,229,255,.07);
+        }
+
+        .toggle-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .toggle-row label { cursor: pointer; margin: 0; color: var(--text); text-transform: none; font-size: 12px; letter-spacing: 0; }
+        input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+        /* Buttons */
+        .btn-group {
+            display: flex; flex-direction: column; gap: 8px;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: .06em;
+            padding: 10px 14px;
+            text-transform: uppercase;
+            transition: all .18s;
+            display: flex; align-items: center; gap: 8px;
+            position: relative; overflow: hidden;
+        }
+        button::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: rgba(255,255,255,.06);
+            opacity: 0;
+            transition: opacity .18s;
+        }
+        button:hover::after { opacity: 1; }
+
+        .btn-start {
+            background: var(--accent);
+            color: #000;
+        }
+        .btn-start:hover { background: #33ecff; box-shadow: var(--glow); }
+
+        .btn-stop {
+            background: transparent;
+            border: 1px solid var(--red);
+            color: var(--red);
+        }
+        .btn-stop:hover { background: rgba(255,64,96,.08); }
+
+        .btn-export {
+            background: transparent;
+            border: 1px solid var(--border-hi);
+            color: var(--text);
+        }
+        .btn-export:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+        /* Session info */
+        .session-info {
+            padding: 16px 20px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .info-row {
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .info-key  { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+        .info-val  { font-size: 11px; color: var(--text); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Status strip */
+        #statusStrip {
+            margin: 0 20px 16px;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            background: rgba(0,229,255,.05);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            min-height: 34px;
+            line-height: 1.5;
+            display: none;
+        }
+        #statusStrip.visible { display: block; }
+        #statusStrip.ok    { border-color: var(--accent-dim); color: var(--accent); }
+        #statusStrip.error { border-color: var(--red); color: var(--red); }
+
+        /* ── Top toolbar for logs ── */
+        .log-toolbar {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .log-toolbar-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 12px; font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--text);
+        }
+        .pill {
+            padding: 3px 8px;
+            border-radius: 20px;
+            background: rgba(0,229,255,.08);
+            border: 1px solid var(--accent-dim);
+            font-size: 10px;
+            color: var(--accent);
+            letter-spacing: .05em;
+        }
+        .ml-auto { margin-left: auto; }
+
+        .live-dot {
+            width: 8px; height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 1.4s ease-in-out infinite;
+            display: none;
+        }
+        .live-dot.active { display: block; }
+
+        /* ── Log panel ── */
+        #logs {
+            overflow-y: auto;
+            height: 100%;
+            padding: 8px 0;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-hi) transparent;
+        }
+
+        .log-empty {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%;
+            color: var(--muted);
+            gap: 10px;
+        }
+        .log-empty svg { opacity: .2; }
+        .log-empty p { font-size: 12px; letter-spacing: .05em; }
+
+        .log-entry {
+            display: grid;
+            grid-template-columns: 180px 90px 1fr;
+            gap: 0;
+            padding: 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background .12s;
+        }
+        .log-entry:hover { background: rgba(255,255,255,.025); }
+        .log-entry:last-child { border-bottom: none; }
+
+        .log-col {
+            padding: 9px 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .log-col-ts { color: var(--muted); font-size: 11px; border-right: 1px solid var(--border); }
+        .log-col-type {
+            font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .08em;
+            border-right: 1px solid var(--border);
+        }
+        .log-col-body { color: var(--text); font-size: 11px; }
+
+        .type-request  { color: var(--accent); }
+        .type-response { color: var(--green); }
+        .type-error    { color: var(--red); }
+        .type-event    { color: var(--amber); }
+        .type-default  { color: var(--muted); }
+
+        /* Detail panel */
+        #detail {
+            position: fixed; right: 0; top: 57px;
+            width: 480px; height: calc(100vh - 57px);
+            background: var(--surface);
+            border-left: 1px solid var(--border-hi);
+            display: flex; flex-direction: column;
+            transform: translateX(100%);
+            transition: transform .25s cubic-bezier(.4,0,.2,1);
+            z-index: 100;
+        }
+        #detail.open { transform: translateX(0); }
+
+        .detail-header {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg);
+        }
+        .detail-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 12px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .1em;
+            color: var(--text);
+        }
+        .close-btn {
+            margin-left: auto;
+            background: none; border: 1px solid var(--border-hi);
+            color: var(--muted); font-size: 14px;
+            width: 26px; height: 26px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; padding: 0; cursor: pointer;
+        }
+        .close-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+        #detailBody {
+            overflow-y: auto; flex: 1; padding: 16px;
+        }
+        #detailBody pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: var(--text);
+        }
+
+        /* Scrollbar style */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+        /* Fade-in for entries */
+        @keyframes fadeIn {
+            from { opacity:0; transform: translateY(4px); }
+            to   { opacity:1; transform: translateY(0); }
+        }
+        .log-entry { animation: fadeIn .18s ease both; }
     </style>
 </head>
 <body>
 
-<h2>Debug Session Dashboard</h2>
+<header>
+    <div class="logo-dot"></div>
+    <h1>Debug<span>Tracer</span></h1>
+    <div class="badge">Laravel</div>
+</header>
 
-<p>
-    <label for="tokenInput">API Token:</label>
-    <input id="tokenInput" type="text" placeholder="Enter token">
-</p>
+<main>
+    <!-- ── Sidebar ── -->
+    <aside>
+        <div class="section-label">Authentication</div>
 
-<p>
-    <label for="traceIdInput">Trace ID (optional):</label>
-    <input id="traceIdInput" type="text" placeholder="From X-Debug-Trace-Id response header">
-    <label style="margin-left:12px;">
-        <input type="checkbox" id="showAllTraces">
-        Show all requests in session
-    </label>
-</p>
+        <div class="field-group">
+            <label for="tokenInput">API Token</label>
+            <input id="tokenInput" type="text" placeholder="Enter token…">
+        </div>
 
-<button onclick="startSession()">Start token tracing</button>
-<button onclick="stopSession()">Stop token tracing</button>
-<button onclick="exportLogs()">Export logs</button>
+        <div class="section-label">Trace Filter</div>
 
-<p>Session: <span id="sessionId">-</span></p>
-<p id="status"></p>
+        <div class="field-group">
+            <label for="traceIdInput">Trace ID</label>
+            <input id="traceIdInput" type="text" placeholder="From X-Debug-Trace-Id header">
+        </div>
 
-<div id="logs"></div>
+        <div class="toggle-row">
+            <input type="checkbox" id="showAllTraces">
+            <label for="showAllTraces">Show all requests in session</label>
+        </div>
+
+        <div class="section-label">Controls</div>
+
+        <div class="btn-group">
+            <button class="btn-start" onclick="startSession()">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="6" fill="currentColor" opacity=".2"/><polygon points="4,3 10,6 4,9" fill="currentColor"/></svg>
+                Start Tracing
+            </button>
+            <button class="btn-stop" onclick="stopSession()">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="8" height="8" rx="1" fill="currentColor"/></svg>
+                Stop Session
+            </button>
+            <button class="btn-export" onclick="exportLogs()">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M3 5.5l3 3 3-3M2 10h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Export Logs
+            </button>
+        </div>
+
+        <div class="section-label">Session</div>
+
+        <div class="session-info">
+            <div class="info-row">
+                <span class="info-key">Session ID</span>
+                <span class="info-val" id="sessionId">—</span>
+            </div>
+            <div class="info-row">
+                <span class="info-key">Events</span>
+                <span class="info-val" id="eventCount">0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-key">Last Poll</span>
+                <span class="info-val" id="lastPoll">—</span>
+            </div>
+        </div>
+
+        <div id="statusStrip"></div>
+    </aside>
+
+    <!-- ── Log toolbar ── -->
+    <div class="log-toolbar">
+        <span class="log-toolbar-title">Event Stream</span>
+        <span class="pill" id="countPill">0 events</span>
+        <div class="live-dot ml-auto" id="liveDot"></div>
+    </div>
+
+    <!-- ── Log list ── -->
+    <div id="logs">
+        <div class="log-empty" id="emptyState">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect x="6" y="10" width="36" height="28" rx="3" stroke="#4a5a6e" stroke-width="2"/>
+                <path d="M14 20h20M14 26h14M14 32h8" stroke="#4a5a6e" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <p>No events yet — start a session to begin tracing</p>
+        </div>
+    </div>
+</main>
+
+<!-- ── Detail panel ── -->
+<div id="detail">
+    <div class="detail-header">
+        <span class="detail-title">Event Detail</span>
+        <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <div id="detailBody"></div>
+</div>
 
 <script>
-    let sessionId = null;
+    let sessionId  = null;
     let pollHandle = null;
+    let eventCount = 0;
 
-    function tokenValue() {
-        return document.getElementById('tokenInput').value.trim();
+    /* ── Helpers ── */
+    function token() { return document.getElementById('tokenInput').value.trim(); }
+
+    function setStatus(text, type = 'ok') {
+        const el = document.getElementById('statusStrip');
+        el.textContent = text;
+        el.className = 'visible ' + type;
     }
 
-    function setStatus(text, isError = false) {
-        const el = document.getElementById('status');
-        el.innerText = text;
-        el.style.color = isError ? '#b00' : '#222';
+    function clearStatus() {
+        document.getElementById('statusStrip').className = '';
     }
 
+    function fmtTime(iso) {
+        if (!iso) return '—';
+        try {
+            return new Date(iso).toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 2 });
+        } catch { return iso; }
+    }
+
+    function detectType(e) {
+        const t = (e.type || e.event || '').toLowerCase();
+        if (t.includes('request'))  return 'request';
+        if (t.includes('response')) return 'response';
+        if (t.includes('error') || t.includes('exception')) return 'error';
+        if (t.includes('event'))    return 'event';
+        return 'default';
+    }
+
+    function summarise(e) {
+        if (e.method && e.url)  return `${e.method} ${e.url}`;
+        if (e.status)           return `HTTP ${e.status}`;
+        if (e.message)          return e.message;
+        if (e.event)            return e.event;
+        const keys = Object.keys(e).filter(k => !['trace_id','trace_token','timestamp'].includes(k));
+        return keys.slice(0,3).map(k => `${k}: ${JSON.stringify(e[k])}`).join('  ');
+    }
+
+    /* ── Actions ── */
     async function startSession() {
-        const token = tokenValue();
-
-        if (!token) {
-            setStatus('Please enter a token.', true);
-            return;
-        }
+        if (!token()) { setStatus('Please enter an API token.', 'error'); return; }
 
         const res = await fetch('/debug/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
+            body: JSON.stringify({ token: token() })
         });
 
-        if (!res.ok) {
-            setStatus('Unable to start trace session.', true);
-            return;
-        }
+        if (!res.ok) { setStatus('Unable to start trace session.', 'error'); return; }
 
         const data = await res.json();
-
         sessionId = data.session_id;
-        document.getElementById('sessionId').innerText = sessionId;
-        setStatus(`Tracing active for token ${token}. Matching API responses include header X-Debug-Trace-Id.`);
+        eventCount = 0;
 
+        document.getElementById('sessionId').textContent   = sessionId;
+        document.getElementById('eventCount').textContent  = 0;
+        document.getElementById('liveDot').classList.add('active');
+        setStatus(`Tracing active. API responses will include X-Debug-Trace-Id.`, 'ok');
         pollLogs();
     }
 
     async function stopSession() {
-        const token = tokenValue();
-
-        if (!sessionId || !token) {
-            setStatus('Start a session with a token first.', true);
-            return;
-        }
+        if (!sessionId || !token()) { setStatus('Start a session first.', 'error'); return; }
 
         const res = await fetch('/debug/stop', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Debug-Token': token
-            },
+            headers: { 'Content-Type': 'application/json', 'X-Debug-Token': token() },
             body: JSON.stringify({ session_id: sessionId })
         });
 
-        if (!res.ok) {
-            setStatus('Unable to stop trace session.', true);
-            return;
-        }
+        if (!res.ok) { setStatus('Unable to stop session.', 'error'); return; }
 
-        setStatus(`Tracing stopped for token ${token}`);
+        clearInterval(pollHandle); pollHandle = null;
+        document.getElementById('liveDot').classList.remove('active');
+        setStatus(`Session stopped.`, 'ok');
     }
 
     function exportLogs() {
-        const token = tokenValue();
-
-        if (!sessionId || !token) {
-            setStatus('Start a session with a token first.', true);
-            return;
-        }
-
-        window.location = `/debug/export/${sessionId}?token=${encodeURIComponent(token)}`;
+        if (!sessionId || !token()) { setStatus('Start a session first.', 'error'); return; }
+        window.location = `/debug/export/${sessionId}?token=${encodeURIComponent(token())}`;
     }
 
-    async function pollLogs() {
-        const token = tokenValue();
-
-        if (!sessionId || !token) return;
-
-        if (pollHandle) {
-            clearInterval(pollHandle);
-        }
+    /* ── Polling ── */
+    function pollLogs() {
+        if (pollHandle) clearInterval(pollHandle);
 
         pollHandle = setInterval(async () => {
+            if (!sessionId || !token()) return;
+
             const params = new URLSearchParams();
             if (document.getElementById('showAllTraces').checked) {
                 params.set('show_all', '1');
             } else {
                 const tid = document.getElementById('traceIdInput').value.trim();
-                if (tid) {
-                    params.set('trace_id', tid);
-                }
+                if (tid) params.set('trace_id', tid);
             }
-            const qs = params.toString();
-            const res = await fetch(`/debug-dashboard/logs/${sessionId}${qs ? '?' + qs : ''}`, {
-                headers: {
-                    'X-Debug-Token': token
-                }
-            });
 
-            if (!res.ok) {
-                setStatus('Unable to load logs for this token/session.', true);
-                return;
-            }
+            const qs  = params.toString();
+            const url = `/debug-dashboard/logs/${sessionId}${qs ? '?' + qs : ''}`;
+
+            const res = await fetch(url, { headers: { 'X-Debug-Token': token() } });
+
+            if (!res.ok) { setStatus('Unable to load logs.', 'error'); return; }
 
             const data = await res.json();
+            renderLogs(data);
 
-            document.getElementById('logs').innerHTML =
-                data.map(e => JSON.stringify(e)).join('<br>');
+            const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('lastPoll').textContent = now;
         }, 2000);
     }
-</script>
 
+    /* ── Render ── */
+    function renderLogs(events) {
+        const container = document.getElementById('logs');
+        const empty     = document.getElementById('emptyState');
+        const pill      = document.getElementById('countPill');
+        const countEl   = document.getElementById('eventCount');
+
+        pill.textContent    = `${events.length} event${events.length !== 1 ? 's' : ''}`;
+        countEl.textContent = events.length;
+
+        if (!events.length) {
+            empty.style.display = 'flex';
+            // clear previous rows but keep empty state
+            Array.from(container.querySelectorAll('.log-entry')).forEach(el => el.remove());
+            return;
+        }
+
+        empty.style.display = 'none';
+
+        // Re-render fully (simple approach — for large streams use virtual/diff)
+        Array.from(container.querySelectorAll('.log-entry')).forEach(el => el.remove());
+
+        events.forEach((e, i) => {
+            const type    = detectType(e);
+            const typeLabel = (e.type || e.event || type).toUpperCase().slice(0, 12);
+            const summary = summarise(e);
+
+            const row = document.createElement('div');
+            row.className = 'log-entry';
+            row.style.animationDelay = `${Math.min(i * 12, 200)}ms`;
+            row.innerHTML = `
+                <div class="log-col log-col-ts">${fmtTime(e.timestamp)}</div>
+                <div class="log-col log-col-type type-${type}">${typeLabel}</div>
+                <div class="log-col log-col-body">${escapeHtml(summary)}</div>
+            `;
+            row.addEventListener('click', () => openDetail(e));
+            container.appendChild(row);
+        });
+
+        // Auto-scroll to bottom
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+    }
+
+    /* ── Detail panel ── */
+    function openDetail(event) {
+        document.getElementById('detailBody').innerHTML =
+            `<pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre>`;
+        document.getElementById('detail').classList.add('open');
+    }
+
+    function closeDetail() {
+        document.getElementById('detail').classList.remove('open');
+    }
+
+    // Close detail on Escape
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+</script>
 </body>
 </html>
