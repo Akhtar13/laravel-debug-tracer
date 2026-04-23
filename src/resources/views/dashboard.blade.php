@@ -182,6 +182,7 @@
             transition: opacity .18s;
         }
         button:hover::after { opacity: 1; }
+        button:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
 
         .btn-start {
             background: var(--accent);
@@ -456,30 +457,18 @@
             <input id="tokenInput" type="text" placeholder="Enter token…">
         </div>
 
-        <div class="section-label">Trace Filter</div>
-
-        <div class="field-group">
-            <label for="traceIdInput">Trace ID</label>
-            <input id="traceIdInput" type="text" placeholder="From X-Debug-Trace-Id header">
-        </div>
-
-        <div class="toggle-row">
-            <input type="checkbox" id="showAllTraces" checked>
-            <label for="showAllTraces">Show all requests in session</label>
-        </div>
-
         <div class="section-label">Controls</div>
 
         <div class="btn-group">
-            <button class="btn-start" onclick="startSession()">
+            <button id="btnStart" class="btn-start" onclick="startSession()">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="6" fill="currentColor" opacity=".2"/><polygon points="4,3 10,6 4,9" fill="currentColor"/></svg>
                 Start Tracing
             </button>
-            <button class="btn-stop" onclick="stopSession()">
+            <button id="btnStop" class="btn-stop" onclick="stopSession()" disabled>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="2" width="8" height="8" rx="1" fill="currentColor"/></svg>
                 Stop Session
             </button>
-            <button class="btn-export" onclick="exportLogs()">
+            <button id="btnExport" class="btn-export" onclick="exportLogs()" disabled>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M3 5.5l3 3 3-3M2 10h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Export Logs
             </button>
@@ -507,7 +496,7 @@
 
     <!-- ── Log toolbar ── -->
     <div class="log-toolbar">
-        <span class="log-toolbar-title">Request Stream</span>
+        <span class="log-toolbar-title">API Lifecycle Stream</span>
         <span class="pill" id="countPill">0 events</span>
         <button type="button" class="btn-toolbar ml-auto" id="btnRefresh" onclick="refreshLogs()" disabled title="Fetch now and pause auto-refresh">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M10 6a4 4 0 1 0-1.17 2.83M10 6V3M10 6H7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -578,6 +567,18 @@
         return Number.isNaN(ms) ? 0 : ms;
     }
 
+
+    function updateControls() {
+        const hasToken = Boolean(token());
+        const hasSession = Boolean(sessionId);
+
+        document.getElementById('btnStart').disabled = !hasToken || hasSession;
+        document.getElementById('btnStop').disabled = !hasSession || !hasToken;
+        document.getElementById('btnExport').disabled = !hasSession || !hasToken;
+        document.getElementById('btnRefresh').disabled = !hasSession || !hasToken;
+        updateGoLiveButton();
+    }
+
     function shortUrl(url) {
         if (!url) return '/';
         try {
@@ -610,9 +611,9 @@
 
         document.getElementById('sessionId').textContent = sessionId;
         document.getElementById('eventCount').textContent = '0';
-        document.getElementById('btnRefresh').disabled = false;
         setStatus('Tracing active. Click a request row to inspect details.', 'ok');
 
+        updateControls();
         startPolling();
     }
 
@@ -633,9 +634,15 @@
         }
 
         stopPolling();
-        document.getElementById('btnRefresh').disabled = true;
         document.getElementById('btnGoLive').style.display = 'none';
-        setStatus('Session stopped.', 'ok');
+        sessionId = null;
+        requestViews = [];
+        renderLogs([]);
+        document.getElementById('sessionId').textContent = '—';
+        document.getElementById('eventCount').textContent = '0';
+        document.getElementById('lastPoll').textContent = '—';
+        setStatus('Session stopped. Session files removed.', 'ok');
+        updateControls();
     }
 
     function exportLogs() {
@@ -655,16 +662,7 @@
         if (btn && !btn.disabled) btn.setAttribute('aria-busy', 'true');
 
         try {
-            const params = new URLSearchParams();
-            if (document.getElementById('showAllTraces').checked) {
-                params.set('show_all', '1');
-            } else {
-                const tid = document.getElementById('traceIdInput').value.trim();
-                if (tid) params.set('trace_id', tid);
-            }
-
-            const qs = params.toString();
-            const url = `/debug-dashboard/logs/${sessionId}${qs ? '?' + qs : ''}`;
+            const url = `/debug-dashboard/logs/${sessionId}`;
             const res = await fetch(url, { headers: { 'X-Debug-Token': token() } });
 
             if (!res.ok) {
@@ -719,41 +717,39 @@
     }
 
     function buildRequestViews(events) {
-        const groups = new Map();
+        const groups = [];
 
         events.forEach((event, index) => {
-            const traceId = event.trace_id || `no-trace-${index}`;
-            if (!groups.has(traceId)) {
-                groups.set(traceId, {
-                    trace_id: event.trace_id || null,
-                    request: null,
+            const type = String(event.type || event.event || '').toLowerCase();
+
+            if (type === 'request') {
+                groups.push({
+                    request: event,
                     response: null,
-                    db: [],
-                    errors: [],
-                    all_events: []
+                    errors: []
                 });
+
+                return;
             }
 
-            const group = groups.get(traceId);
-            group.all_events.push(event);
+            if (type === 'response' && groups.length) {
+                const last = groups[groups.length - 1];
+                if (!last.response) {
+                    last.response = event;
+                    return;
+                }
+            }
 
-            const type = String(event.type || event.event || '').toLowerCase();
-            if (type === 'request') {
-                group.request = event;
-            } else if (type === 'response') {
-                group.response = event;
-            } else if (type === 'db') {
-                group.db.push(event);
-            } else if (type.includes('error') || type.includes('exception')) {
-                group.errors.push(event);
+            if ((type.includes('error') || type.includes('exception')) && groups.length) {
+                groups[groups.length - 1].errors.push(event);
             }
         });
 
-        return Array.from(groups.values())
-            .filter(group => group.request || group.response || group.db.length > 0 || group.errors.length > 0)
+        return groups
+            .filter(group => group.request || group.response || group.errors.length > 0)
             .sort((a, b) => {
-                const aTs = parseTime(a.request?.timestamp || a.response?.timestamp || a.all_events[0]?.timestamp);
-                const bTs = parseTime(b.request?.timestamp || b.response?.timestamp || b.all_events[0]?.timestamp);
+                const aTs = parseTime(a.request?.timestamp || a.response?.timestamp);
+                const bTs = parseTime(b.request?.timestamp || b.response?.timestamp);
                 return bTs - aTs;
             });
     }
@@ -783,7 +779,7 @@
             const ts = req.timestamp || res.timestamp;
             const method = (req.method || 'TRACE').toUpperCase();
             const status = res.status ? `HTTP ${res.status}` : (view.errors.length ? 'FAILED' : 'PENDING');
-            const summary = `${method} ${shortUrl(req.url || '/')}  •  ${status}  •  DB ${view.db.length}`;
+            const summary = `${method} ${shortUrl(req.url || '/')}  •  ${status}`;
 
             const row = document.createElement('div');
             row.className = 'log-entry';
@@ -801,7 +797,6 @@
     function requestDetails(group) {
         const req = group.request || {};
         return {
-            trace_id: group.trace_id,
             timestamp: req.timestamp || null,
             method: req.method || null,
             url: req.url || null,
@@ -811,19 +806,10 @@
         };
     }
 
-    function dbDetails(group) {
-        return group.db.map(item => ({
-            timestamp: item.timestamp || null,
-            query: item.query || null,
-            duration_ms: item.duration_ms ?? null,
-            bindings: item.bindings ?? null
-        }));
-    }
 
     function responseDetails(group) {
         const res = group.response || {};
         return {
-            trace_id: group.trace_id,
             timestamp: res.timestamp || null,
             status: res.status ?? null,
             duration_ms: res.duration_ms ?? null,
@@ -854,21 +840,15 @@
         const tabsHtml = `
             <div class="detail-tabs">
                 <button type="button" class="detail-tab ${tab === 'request' ? 'active' : ''}" data-tab="request">Request Details</button>
-                <button type="button" class="detail-tab ${tab === 'db' ? 'active' : ''}" data-tab="db">DB Details</button>
-                <button type="button" class="detail-tab ${tab === 'response' ? 'active' : ''}" data-tab="response">Response Details</button>
+                                <button type="button" class="detail-tab ${tab === 'response' ? 'active' : ''}" data-tab="response">Response Details</button>
             </div>
         `;
 
-        let payload;
-        if (tab === 'db') {
-            payload = dbDetails(activeDetail);
-        } else if (tab === 'response') {
-            payload = responseDetails(activeDetail);
-        } else {
-            payload = requestDetails(activeDetail);
-        }
+        const payload = tab === 'response'
+            ? responseDetails(activeDetail)
+            : requestDetails(activeDetail);
 
-        const meta = activeDetail.trace_id ? `<div class="request-meta"><span>Trace: ${escapeHtml(activeDetail.trace_id)}</span></div>` : '';
+        const meta = '';
         document.getElementById('detailBody').innerHTML = `
             ${tabsHtml}
             ${meta}
@@ -892,9 +872,8 @@
         document.getElementById('detail').classList.remove('open');
     }
 
-    document.getElementById('showAllTraces').addEventListener('change', () => { fetchLogs(); });
-    document.getElementById('traceIdInput').addEventListener('change', () => { fetchLogs(); });
-    document.getElementById('tokenInput').addEventListener('input', () => { updateGoLiveButton(); });
+    document.getElementById('tokenInput').addEventListener('input', () => { updateControls(); });
+    updateControls();
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 </script>
 </body>

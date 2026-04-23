@@ -1,6 +1,9 @@
 # Laravel Debug Session Tracer
 
-File-based, token-scoped, ephemeral tracing for Laravel applications.
+Minimal, file-based API lifecycle tracing for Laravel.
+
+This package is now focused only on tracing API request/response/error lifecycle events.
+No Trace ID filtering, no admin/debug extras, and no job debugging.
 
 ## Install
 
@@ -8,38 +11,57 @@ File-based, token-scoped, ephemeral tracing for Laravel applications.
 composer require akhtar/laravel-debug-tracer
 ```
 
-## Publish config
+## Publish configuration
 
 ```bash
 php artisan vendor:publish --tag=debug-tracer-config
 ```
 
-## Configuration
+## Required configuration
 
-```php
-return [
-    'enabled' => false,
-    'session_ttl_minutes' => 30,
-    'storage_path' => storage_path('debug-traces'),
-    'matching_mode' => 'token', // token | user | header
-];
+Set these in `.env`:
+
+```dotenv
+DEBUG_TRACER_ENABLED=true
+DEBUG_TRACER_TTL_MINUTES=30
+DEBUG_TRACER_MATCHING_HEADER=X-Debug-Token
 ```
 
-## Scheduler setup
+Config (`config/debug-tracer.php`) options used in this minimal mode:
 
-The package registers the `debug-tracer:cleanup` command. Ensure your Laravel scheduler is running:
+- `enabled`
+- `session_ttl_minutes`
+- `storage_path`
+- `matching_header`
+- `route_middleware`
+- `register_routes`
+- `attach_api_middleware`
+
+## Scheduler setup (recommended)
+
+The package provides `debug-tracer:cleanup` and auto-schedules it every 5 minutes.
+
+Make sure your app scheduler is running in your environment:
 
 ```bash
 php artisan schedule:work
 ```
 
-## Queue setup
+## Routes
 
-Jobs automatically receive `debug_session_id` when a traced request dispatches them. Add `\Akhtar\LaravelDebugTracer\Queue\DebugTraceJobMiddleware::class` to job middleware when you want job start/end/failure events.
+- `POST /debug/start`
+- `POST /debug/stop`
+- `GET /debug/export/{session_id}`
+- `GET /debug-dashboard`
+- `GET /debug-dashboard/logs/{session_id}`
 
-## Usage flow
+## Lifecycle behavior
 
-1. Start a token session:
+### Start session
+
+`POST /debug/start`
+
+Body:
 
 ```json
 {
@@ -47,16 +69,57 @@ Jobs automatically receive `debug_session_id` when a traced request dispatches t
 }
 ```
 
-2. Perform API requests using the same token (query `token`, `Authorization: Bearer ...`, or configured header).
+What happens:
 
-3. Export logs: `GET /debug/export/{session_id}`
-4. Stop session: `POST /debug/stop`
+1. All old session files in storage are removed.
+2. A new active session is created.
+3. New API lifecycle events are appended to this session file.
+
+### Stop session
+
+`POST /debug/stop`
+
+Body:
+
+```json
+{
+  "session_id": "uuid"
+}
+```
+
+Header:
+
+```http
+X-Debug-Token: your-api-token
+```
+
+What happens:
+
+1. Session ownership is validated by token.
+2. Session meta/log files are deleted immediately.
+3. Export is no longer possible for that stopped session.
+
+### Export logs
+
+`GET /debug/export/{session_id}?token=Bearer your-api-token`
+
+Returns NDJSON of captured API lifecycle entries.
+
+## Dashboard behavior
+
+In `/debug-dashboard`:
+
+- Start button is disabled while a session is active.
+- Stop and Export are disabled until a session is active.
+- After stop, Stop and Export are disabled again.
+- The UI only shows API request/response/error lifecycle details.
 
 ## Storage
 
-Files are written to `storage/debug-traces/`:
+Default path:
 
-- `{session_id}.meta.json`
-- `{session_id}.log` (NDJSON, append-only)
+- `storage/debug-traces/{session_id}.meta.json`
+- `storage/debug-traces/{session_id}.log`
 
-Expired/stopped sessions are deleted by the cleanup command.
+On new session start, all old files are deleted first.
+On stop, current session files are deleted immediately.

@@ -53,9 +53,6 @@ class TraceHttpLifecycle
             'body' => $this->extractResponseBody($response),
         ]);
 
-        if (app()->bound('debug.trace_id')) {
-            $response->headers->set('X-Debug-Trace-Id', (string) app('debug.trace_id'));
-        }
 
         return $response;
     }

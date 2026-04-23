@@ -3,17 +3,8 @@
 namespace Akhtar\LaravelDebugTracer;
 
 use Akhtar\LaravelDebugTracer\Console\Commands\CleanupDebugTracesCommand;
-use Akhtar\LaravelDebugTracer\Http\Middleware\BindDebugSession;
-use Akhtar\LaravelDebugTracer\Http\Middleware\TraceHttpLifecycle;
 use Akhtar\LaravelDebugTracer\Services\DebugTracer;
 use Akhtar\LaravelDebugTracer\Services\TraceStorage;
-use Illuminate\Http\Client\Events\ConnectionFailed;
-use Illuminate\Http\Client\Events\ResponseReceived;
-use Illuminate\Http\Client\Events\RequestSending;
-use Illuminate\Queue\Events\JobProcessing;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\ServiceProvider;
 
 class DebugTracerServiceProvider extends ServiceProvider
@@ -47,69 +38,6 @@ class DebugTracerServiceProvider extends ServiceProvider
             $this->app->make(\Illuminate\Contracts\Http\Kernel::class)
                 ->pushMiddleware(\Akhtar\LaravelDebugTracer\Http\Middleware\TraceHttpLifecycle::class);
         }
-
-        DB::listen(function ($query): void {
-            if (! app()->bound('debug.session_id')) {
-                return;
-            }
-
-            app(DebugTracer::class)->capture([
-                'type' => 'db',
-                'query' => $query->sql,
-                'duration_ms' => $query->time,
-            ]);
-        });
-
-        Event::listen(RequestSending::class, function (RequestSending $event): void {
-            if (! app()->bound('debug.session_id')) {
-                return;
-            }
-
-            app(DebugTracer::class)->capture([
-                'type' => 'http_request',
-                'url' => (string) $event->request->url(),
-                'method' => $event->request->method(),
-            ]);
-        });
-
-        Event::listen(ResponseReceived::class, function (ResponseReceived $event): void {
-            if (! app()->bound('debug.session_id')) {
-                return;
-            }
-
-            app(DebugTracer::class)->capture([
-                'type' => 'http_response',
-                'url' => (string) $event->request->url(),
-                'status' => $event->response->status(),
-            ]);
-        });
-
-        Event::listen(ConnectionFailed::class, function (ConnectionFailed $event): void {
-            if (! app()->bound('debug.session_id')) {
-                return;
-            }
-
-            app(DebugTracer::class)->capture([
-                'type' => 'http_error',
-                'url' => (string) $event->request->url(),
-            ]);
-        });
-
-        Queue::createPayloadUsing(function () {
-            if (! app()->bound('debug.session_id')) {
-                return [];
-            }
-
-            $payload = ['debug_session_id' => app('debug.session_id')];
-            if (app()->bound('debug.trace_id')) {
-                $payload['debug_trace_id'] = app('debug.trace_id');
-            }
-            if (app()->bound('debug.trace_token')) {
-                $payload['debug_trace_token'] = app('debug.trace_token');
-            }
-
-            return $payload;
-        });
 
         if ($this->app->runningInConsole()) {
             $this->commands([CleanupDebugTracesCommand::class]);

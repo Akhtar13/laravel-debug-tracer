@@ -7,7 +7,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
-
 class DashboardController extends Controller
 {
     public function __construct(private readonly TraceStorage $storage)
@@ -46,74 +45,15 @@ class DashboardController extends Controller
             }
         }
 
-        $events = $this->filterEventsForDashboard(
-            $events,
-            $token,
-            $request->query('trace_id'),
-            filter_var($request->query('show_all', false), FILTER_VALIDATE_BOOLEAN)
-        );
-
         return response()->json($events);
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $events
-     * @return array<int, array<string, mixed>>
-     */
-    private function filterEventsForDashboard(array $events, string $token, mixed $traceIdQuery, bool $showAll): array
-    {
-        $events = array_values(array_filter(
-            $events,
-            static function (array $e) use ($token): bool {
-                if (! array_key_exists('trace_token', $e)) {
-                    return true;
-                }
-
-                return normalize_debug_token((string) $e['trace_token']) === $token;
-            }
-        ));
-
-        if ($showAll || ! $this->eventsDefineTraceIds($events)) {
-            return $events;
-        }
-
-        $traceIdFilter = is_string($traceIdQuery) && $traceIdQuery !== '' ? $traceIdQuery : null;
-        if ($traceIdFilter === null) {
-            return $events;
-        }
-
-        return array_values(array_filter(
-            $events,
-            static fn (array $e): bool => ($e['trace_id'] ?? null) === $traceIdFilter
-        ));
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $events
-     */
-    private function eventsDefineTraceIds(array $events): bool
-    {
-        foreach ($events as $e) {
-            if (isset($e['trace_id']) && is_string($e['trace_id']) && $e['trace_id'] !== '') {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function resolveToken(Request $request): ?string
     {
-        $mode = config('debug-tracer.matching_mode', 'token');
-
-        $token = match ($mode) {
-            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
-            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->input('token')
+        return normalize_debug_token(
+            $request->input('token')
                 ?: $request->bearerToken()
-                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-        };
-
-        return normalize_debug_token($token);
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'))
+        );
     }
 }
