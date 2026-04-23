@@ -91,4 +91,60 @@ class DebugSessionControllerTest extends TestCase
         ]);
         $logs->assertOk()->assertJsonFragment(['type' => 'request', 'url' => '/products']);
     }
+
+    public function test_dashboard_logs_defaults_to_latest_trace_id(): void
+    {
+        $plain = 'traceFilterToken123';
+        $start = $this->postJson('/debug/start', ['token' => $plain]);
+        $start->assertOk();
+        $sessionId = $start->json('session_id');
+
+        /** @var TraceStorage $storage */
+        $storage = app(TraceStorage::class);
+        $storage->appendEvent($sessionId, [
+            'type' => 'request',
+            'url' => '/first',
+            'trace_id' => '11111111-1111-1111-1111-111111111111',
+            'trace_token' => $plain,
+        ]);
+        $storage->appendEvent($sessionId, [
+            'type' => 'response',
+            'trace_id' => '11111111-1111-1111-1111-111111111111',
+            'trace_token' => $plain,
+        ]);
+        $storage->appendEvent($sessionId, [
+            'type' => 'request',
+            'url' => '/second',
+            'trace_id' => '22222222-2222-2222-2222-222222222222',
+            'trace_token' => $plain,
+        ]);
+        $storage->appendEvent($sessionId, [
+            'type' => 'db',
+            'trace_id' => '22222222-2222-2222-2222-222222222222',
+            'trace_token' => $plain,
+        ]);
+
+        $logs = $this->getJson('/debug-dashboard/logs/'.$sessionId, [
+            'X-Debug-Token' => $plain,
+        ]);
+        $logs->assertOk();
+        $latestOnly = $logs->json();
+        $this->assertCount(2, $latestOnly);
+        $this->assertSame('/second', $latestOnly[0]['url'] ?? null);
+        $this->assertNotContains('/first', array_column($latestOnly, 'url'));
+
+        $all = $this->getJson('/debug-dashboard/logs/'.$sessionId.'?show_all=1', [
+            'X-Debug-Token' => $plain,
+        ]);
+        $all->assertOk();
+        $this->assertCount(4, $all->json());
+
+        $pinned = $this->getJson(
+            '/debug-dashboard/logs/'.$sessionId.'?trace_id=11111111-1111-1111-1111-111111111111',
+            ['X-Debug-Token' => $plain]
+        );
+        $pinned->assertOk();
+        $this->assertCount(2, $pinned->json());
+        $pinned->assertJsonFragment(['url' => '/first']);
+    }
 }

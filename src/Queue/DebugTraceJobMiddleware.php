@@ -31,6 +31,16 @@ class DebugTraceJobMiddleware
 
         app()->instance('debug.session_id', (string) $sessionId);
 
+        $traceId = $payload['debug_trace_id'] ?? null;
+        if (is_string($traceId) && $traceId !== '') {
+            app()->instance('debug.trace_id', $traceId);
+        }
+
+        $traceToken = $payload['debug_trace_token'] ?? null;
+        if (is_string($traceToken) && $traceToken !== '') {
+            app()->instance('debug.trace_token', $traceToken);
+        }
+
         $this->tracer->capture([
             'type' => 'job_start',
             'class' => method_exists($job, 'resolveName') ? $job->resolveName() : get_class($job),

@@ -5,6 +5,7 @@ namespace Akhtar\LaravelDebugTracer\Http\Middleware;
 use Akhtar\LaravelDebugTracer\Services\TraceStorage;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class BindDebugSession
 {
@@ -15,6 +16,10 @@ class BindDebugSession
     public function handle(Request $request, Closure $next)
     {
         if (! config('debug-tracer.enabled', false)) {
+            return $next($request);
+        }
+
+        if (debug_tracer_should_skip_http_tracing($request->path())) {
             return $next($request);
         }
 
@@ -31,6 +36,8 @@ class BindDebugSession
         }
 
         app()->instance('debug.session_id', (string) $meta['session_id']);
+        app()->instance('debug.trace_id', (string) Str::uuid());
+        app()->instance('debug.trace_token', $token);
 
         return $next($request);
     }

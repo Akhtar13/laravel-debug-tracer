@@ -42,9 +42,10 @@ class DebugTracerServiceProvider extends ServiceProvider
         }
 
         if (config('debug-tracer.attach_api_middleware', true) && $this->app->bound('router')) {
-            $router = $this->app['router'];
-            $router->pushMiddlewareToGroup('api', BindDebugSession::class);
-            $router->pushMiddlewareToGroup('api', TraceHttpLifecycle::class);
+            $this->app->make(\Illuminate\Contracts\Http\Kernel::class)
+                ->pushMiddleware(\Akhtar\LaravelDebugTracer\Http\Middleware\BindDebugSession::class);
+            $this->app->make(\Illuminate\Contracts\Http\Kernel::class)
+                ->pushMiddleware(\Akhtar\LaravelDebugTracer\Http\Middleware\TraceHttpLifecycle::class);
         }
 
         DB::listen(function ($query): void {
@@ -99,7 +100,15 @@ class DebugTracerServiceProvider extends ServiceProvider
                 return [];
             }
 
-            return ['debug_session_id' => app('debug.session_id')];
+            $payload = ['debug_session_id' => app('debug.session_id')];
+            if (app()->bound('debug.trace_id')) {
+                $payload['debug_trace_id'] = app('debug.trace_id');
+            }
+            if (app()->bound('debug.trace_token')) {
+                $payload['debug_trace_token'] = app('debug.trace_token');
+            }
+
+            return $payload;
         });
 
         if ($this->app->runningInConsole()) {

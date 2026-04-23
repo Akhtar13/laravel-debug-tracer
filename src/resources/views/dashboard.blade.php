@@ -17,6 +17,15 @@
     <input id="tokenInput" type="text" placeholder="Enter token">
 </p>
 
+<p>
+    <label for="traceIdInput">Trace ID (optional):</label>
+    <input id="traceIdInput" type="text" placeholder="From X-Debug-Trace-Id response header">
+    <label style="margin-left:12px;">
+        <input type="checkbox" id="showAllTraces">
+        Show all requests in session
+    </label>
+</p>
+
 <button onclick="startSession()">Start token tracing</button>
 <button onclick="stopSession()">Stop token tracing</button>
 <button onclick="exportLogs()">Export logs</button>
@@ -63,7 +72,7 @@
 
         sessionId = data.session_id;
         document.getElementById('sessionId').innerText = sessionId;
-        setStatus(`Tracing active for token ${token}`);
+        setStatus(`Tracing active for token ${token}. Matching API responses include header X-Debug-Trace-Id.`);
 
         pollLogs();
     }
@@ -114,7 +123,17 @@
         }
 
         pollHandle = setInterval(async () => {
-            const res = await fetch(`/debug-dashboard/logs/${sessionId}`, {
+            const params = new URLSearchParams();
+            if (document.getElementById('showAllTraces').checked) {
+                params.set('show_all', '1');
+            } else {
+                const tid = document.getElementById('traceIdInput').value.trim();
+                if (tid) {
+                    params.set('trace_id', tid);
+                }
+            }
+            const qs = params.toString();
+            const res = await fetch(`/debug-dashboard/logs/${sessionId}${qs ? '?' + qs : ''}`, {
                 headers: {
                     'X-Debug-Token': token
                 }

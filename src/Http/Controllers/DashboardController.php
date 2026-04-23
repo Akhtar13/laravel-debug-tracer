@@ -33,13 +33,88 @@ class DashboardController extends Controller
 
         $path = $this->storage->logPath($sessionId);
 
-        if (!file_exists($path)) {
+        if (! file_exists($path)) {
             return response()->json([]);
         }
 
-        $lines = file($path, FILE_IGNORE_NEW_LINES);
+        $lines = file($path, FILE_IGNORE_NEW_LINES) ?: [];
+        $events = [];
+        foreach ($lines as $line) {
+            $decoded = json_decode($line, true);
+            if (is_array($decoded)) {
+                $events[] = $decoded;
+            }
+        }
 
-        return response()->json(array_map(fn($l) => json_decode($l, true), $lines));
+        $events = $this->filterEventsForDashboard(
+            $events,
+            $token,
+            $request->query('trace_id'),
+            filter_var($request->query('show_all', false), FILTER_VALIDATE_BOOLEAN)
+        );
+
+        return response()->json($events);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterEventsForDashboard(array $events, string $token, mixed $traceIdQuery, bool $showAll): array
+    {
+        $events = array_values(array_filter(
+            $events,
+            static function (array $e) use ($token): bool {
+                if (! array_key_exists('trace_token', $e)) {
+                    return true;
+                }
+
+                return normalize_debug_token((string) $e['trace_token']) === $token;
+            }
+        ));
+
+        if ($showAll || ! $this->eventsDefineTraceIds($events)) {
+            return $events;
+        }
+
+        $traceIdFilter = is_string($traceIdQuery) && $traceIdQuery !== '' ? $traceIdQuery : $this->latestTraceId($events);
+        if ($traceIdFilter === null) {
+            return $events;
+        }
+
+        return array_values(array_filter(
+            $events,
+            static fn (array $e): bool => ($e['trace_id'] ?? null) === $traceIdFilter
+        ));
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     */
+    private function eventsDefineTraceIds(array $events): bool
+    {
+        foreach ($events as $e) {
+            if (isset($e['trace_id']) && is_string($e['trace_id']) && $e['trace_id'] !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     */
+    private function latestTraceId(array $events): ?string
+    {
+        $last = null;
+        foreach ($events as $e) {
+            if (isset($e['trace_id']) && is_string($e['trace_id']) && $e['trace_id'] !== '') {
+                $last = $e['trace_id'];
+            }
+        }
+
+        return $last;
     }
 
     private function resolveToken(Request $request): ?string

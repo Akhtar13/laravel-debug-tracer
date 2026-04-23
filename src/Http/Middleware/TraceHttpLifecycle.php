@@ -46,6 +46,10 @@ class TraceHttpLifecycle
             'duration_ms' => (int) round((microtime(true) - $start) * 1000),
         ]);
 
+        if (app()->bound('debug.trace_id')) {
+            $response->headers->set('X-Debug-Trace-Id', (string) app('debug.trace_id'));
+        }
+
         return $response;
     }
 }
