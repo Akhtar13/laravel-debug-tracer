@@ -14,15 +14,6 @@ class DebugTracer
             return;
         }
 
-        $sessionId = app('debug.session_id');
-        $context = [];
-        if (app()->bound('debug.trace_id')) {
-            $context['trace_id'] = app('debug.trace_id');
-        }
-        if (app()->bound('debug.trace_token')) {
-            $context['trace_token'] = app('debug.trace_token');
-        }
-
-        $this->storage->appendEvent((string) $sessionId, array_merge($event, $context));
+        $this->storage->appendEvent((string) app('debug.session_id'), $event);
     }
 }

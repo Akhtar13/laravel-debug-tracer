@@ -42,21 +42,6 @@ class TraceStorage
         return is_array($decoded) ? $decoded : null;
     }
 
-    public function updateSessionStatus(string $sessionId, string $status): ?array
-    {
-        $meta = $this->getSessionMeta($sessionId);
-
-        if (! $meta) {
-            return null;
-        }
-
-        $meta['status'] = $status;
-
-        file_put_contents($this->metaPath($sessionId), json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
-
-        return $meta;
-    }
-
     public function appendEvent(string $sessionId, array $event): void
     {
         $meta = $this->getSessionMeta($sessionId);
@@ -65,7 +50,7 @@ class TraceStorage
         }
 
         if ($this->isExpired($meta)) {
-            $this->updateSessionStatus($sessionId, 'expired');
+            $this->deleteSessionFiles($sessionId);
 
             return;
         }
@@ -99,7 +84,7 @@ class TraceStorage
             }
 
             if ($this->isExpired($meta)) {
-                $this->updateSessionStatus((string) $meta['session_id'], 'expired');
+                $this->deleteSessionFiles((string) ($meta['session_id'] ?? ''));
 
                 continue;
             }
@@ -108,6 +93,29 @@ class TraceStorage
         }
 
         return null;
+    }
+
+    public function clearAllSessions(): int
+    {
+        $deleted = 0;
+
+        foreach (glob($this->storagePath.'/*') ?: [] as $path) {
+            if (is_file($path) && @unlink($path)) {
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
+    public function deleteSessionFiles(string $sessionId): void
+    {
+        if ($sessionId === '') {
+            return;
+        }
+
+        @unlink($this->metaPath($sessionId));
+        @unlink($this->logPath($sessionId));
     }
 
     public function cleanupExpiredAndStoppedSessions(): int
@@ -119,6 +127,7 @@ class TraceStorage
             if (! is_array($meta)) {
                 @unlink($metaFile);
                 $deleted++;
+
                 continue;
             }
 
@@ -130,12 +139,7 @@ class TraceStorage
                 continue;
             }
 
-            if ($expired && $status !== 'expired') {
-                $this->updateSessionStatus($sessionId, 'expired');
-            }
-
-            @unlink($this->metaPath($sessionId));
-            @unlink($this->logPath($sessionId));
+            $this->deleteSessionFiles($sessionId);
             $deleted++;
         }
 

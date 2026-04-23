@@ -29,6 +29,28 @@ class DebugSessionControllerTest extends TestCase
 
         $stop = $this->postJson('/debug/stop', ['session_id' => $sessionId], ['X-Debug-Token' => 'usr_42']);
         $stop->assertOk()->assertJsonPath('status', 'stopped');
+
+        /** @var TraceStorage $storage */
+        $storage = app(TraceStorage::class);
+        $this->assertFileDoesNotExist($storage->metaPath($sessionId));
+        $this->assertFileDoesNotExist($storage->logPath($sessionId));
+    }
+
+    public function test_starting_new_session_clears_previous_session_files(): void
+    {
+        $first = $this->postJson('/debug/start', ['token' => 'usr_42']);
+        $first->assertOk();
+        $firstSessionId = $first->json('session_id');
+
+        /** @var TraceStorage $storage */
+        $storage = app(TraceStorage::class);
+        $storage->appendEvent($firstSessionId, ['type' => 'request', 'url' => '/first']);
+
+        $second = $this->postJson('/debug/start', ['token' => 'usr_42']);
+        $second->assertOk();
+
+        $this->assertFileDoesNotExist($storage->metaPath($firstSessionId));
+        $this->assertFileDoesNotExist($storage->logPath($firstSessionId));
     }
 
     public function test_it_exports_ndjson(): void
@@ -90,61 +112,5 @@ class DebugSessionControllerTest extends TestCase
             'Authorization' => 'Bearer '.$plain,
         ]);
         $logs->assertOk()->assertJsonFragment(['type' => 'request', 'url' => '/products']);
-    }
-
-    public function test_dashboard_logs_defaults_to_latest_trace_id(): void
-    {
-        $plain = 'traceFilterToken123';
-        $start = $this->postJson('/debug/start', ['token' => $plain]);
-        $start->assertOk();
-        $sessionId = $start->json('session_id');
-
-        /** @var TraceStorage $storage */
-        $storage = app(TraceStorage::class);
-        $storage->appendEvent($sessionId, [
-            'type' => 'request',
-            'url' => '/first',
-            'trace_id' => '11111111-1111-1111-1111-111111111111',
-            'trace_token' => $plain,
-        ]);
-        $storage->appendEvent($sessionId, [
-            'type' => 'response',
-            'trace_id' => '11111111-1111-1111-1111-111111111111',
-            'trace_token' => $plain,
-        ]);
-        $storage->appendEvent($sessionId, [
-            'type' => 'request',
-            'url' => '/second',
-            'trace_id' => '22222222-2222-2222-2222-222222222222',
-            'trace_token' => $plain,
-        ]);
-        $storage->appendEvent($sessionId, [
-            'type' => 'db',
-            'trace_id' => '22222222-2222-2222-2222-222222222222',
-            'trace_token' => $plain,
-        ]);
-
-        $logs = $this->getJson('/debug-dashboard/logs/'.$sessionId, [
-            'X-Debug-Token' => $plain,
-        ]);
-        $logs->assertOk();
-        $latestOnly = $logs->json();
-        $this->assertCount(2, $latestOnly);
-        $this->assertSame('/second', $latestOnly[0]['url'] ?? null);
-        $this->assertNotContains('/first', array_column($latestOnly, 'url'));
-
-        $all = $this->getJson('/debug-dashboard/logs/'.$sessionId.'?show_all=1', [
-            'X-Debug-Token' => $plain,
-        ]);
-        $all->assertOk();
-        $this->assertCount(4, $all->json());
-
-        $pinned = $this->getJson(
-            '/debug-dashboard/logs/'.$sessionId.'?trace_id=11111111-1111-1111-1111-111111111111',
-            ['X-Debug-Token' => $plain]
-        );
-        $pinned->assertOk();
-        $this->assertCount(2, $pinned->json());
-        $pinned->assertJsonFragment(['url' => '/first']);
     }
 }

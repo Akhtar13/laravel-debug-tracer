@@ -5,7 +5,6 @@ namespace Akhtar\LaravelDebugTracer\Http\Middleware;
 use Akhtar\LaravelDebugTracer\Services\TraceStorage;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class BindDebugSession
 {
@@ -36,24 +35,16 @@ class BindDebugSession
         }
 
         app()->instance('debug.session_id', (string) $meta['session_id']);
-        app()->instance('debug.trace_id', (string) Str::uuid());
-        app()->instance('debug.trace_token', $token);
 
         return $next($request);
     }
 
     private function resolveToken(Request $request): ?string
     {
-        $mode = config('debug-tracer.matching_mode', 'token');
-
-        $token = match ($mode) {
-            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
-            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->input('token')
+        return normalize_debug_token(
+            $request->input('token')
                 ?: $request->bearerToken()
-                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-        };
-
-        return normalize_debug_token($token);
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'))
+        );
     }
 }

@@ -23,6 +23,8 @@ class DebugSessionController extends Controller
         $token = normalize_debug_token($request->input('token', $this->resolveToken($request)));
         abort_unless($token, 422, 'Unable to resolve trace token.');
 
+        $this->storage->clearAllSessions();
+
         $sessionId = (string) Str::uuid();
         $expiresAt = CarbonImmutable::now('UTC')->addMinutes((int) config('debug-tracer.session_ttl_minutes', 30));
 
@@ -44,11 +46,11 @@ class DebugSessionController extends Controller
         abort_unless($meta, 404, 'Session not found.');
         abort_if(! $this->isOwner($request, $meta), 403, 'You do not own this session.');
 
-        $updated = $this->storage->updateSessionStatus($sessionId, 'stopped');
+        $this->storage->deleteSessionFiles($sessionId);
 
         return response()->json([
             'session_id' => $sessionId,
-            'status' => $updated['status'],
+            'status' => 'stopped',
         ]);
     }
 
@@ -77,16 +79,10 @@ class DebugSessionController extends Controller
 
     private function resolveToken(Request $request): ?string
     {
-        $mode = config('debug-tracer.matching_mode', 'token');
-
-        $token = match ($mode) {
-            'user' => $request->user() ? 'usr_'.$request->user()->getAuthIdentifier() : null,
-            'header' => $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-            default => $request->input('token')
+        return normalize_debug_token(
+            $request->input('token')
                 ?: $request->bearerToken()
-                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token')),
-        };
-
-        return normalize_debug_token($token);
+                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'))
+        );
     }
 }
