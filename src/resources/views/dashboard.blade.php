@@ -386,6 +386,28 @@
         #detailBody {
             overflow-y: auto; flex: 1; padding: 16px;
         }
+        .detail-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+        .detail-tab {
+            background: transparent;
+            border: 1px solid var(--border-hi);
+            color: var(--muted);
+            padding: 6px 10px;
+            font-size: 10px;
+            border-radius: 4px;
+            letter-spacing: .08em;
+        }
+        .detail-tab.active {
+            border-color: var(--accent-dim);
+            color: var(--accent);
+            background: rgba(0,229,255,.08);
+        }
+
         #detailBody pre {
             font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
@@ -393,6 +415,14 @@
             white-space: pre-wrap;
             word-break: break-all;
             color: var(--text);
+        }
+        .request-meta {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
         }
 
         /* Scrollbar style */
@@ -434,7 +464,7 @@
         </div>
 
         <div class="toggle-row">
-            <input type="checkbox" id="showAllTraces">
+            <input type="checkbox" id="showAllTraces" checked>
             <label for="showAllTraces">Show all requests in session</label>
         </div>
 
@@ -477,7 +507,7 @@
 
     <!-- ── Log toolbar ── -->
     <div class="log-toolbar">
-        <span class="log-toolbar-title">Event Stream</span>
+        <span class="log-toolbar-title">Request Stream</span>
         <span class="pill" id="countPill">0 events</span>
         <button type="button" class="btn-toolbar ml-auto" id="btnRefresh" onclick="refreshLogs()" disabled title="Fetch now and pause auto-refresh">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M10 6a4 4 0 1 0-1.17 2.83M10 6V3M10 6H7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -512,13 +542,15 @@
 </div>
 
 <script>
-    let sessionId  = null;
+    let sessionId = null;
     let pollHandle = null;
-    let eventCount = 0;
     let logsFetching = false;
+    let requestViews = [];
+    let activeDetail = null;
 
-    /* ── Helpers ── */
-    function token() { return document.getElementById('tokenInput').value.trim(); }
+    function token() {
+        return document.getElementById('tokenInput').value.trim();
+    }
 
     function setStatus(text, type = 'ok') {
         const el = document.getElementById('statusStrip');
@@ -526,82 +558,95 @@
         el.className = 'visible ' + type;
     }
 
-    function clearStatus() {
-        document.getElementById('statusStrip').className = '';
-    }
-
     function fmtTime(iso) {
         if (!iso) return '—';
         try {
-            return new Date(iso).toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit', fractionalSecondDigits: 2 });
-        } catch { return iso; }
+            return new Date(iso).toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 2
+            });
+        } catch {
+            return iso;
+        }
     }
 
-    function detectType(e) {
-        const t = (e.type || e.event || '').toLowerCase();
-        if (t.includes('request'))  return 'request';
-        if (t.includes('response')) return 'response';
-        if (t.includes('error') || t.includes('exception')) return 'error';
-        if (t.includes('event'))    return 'event';
-        return 'default';
+    function parseTime(iso) {
+        const ms = Date.parse(iso || '');
+        return Number.isNaN(ms) ? 0 : ms;
     }
 
-    function summarise(e) {
-        if (e.method && e.url)  return `${e.method} ${e.url}`;
-        if (e.status)           return `HTTP ${e.status}`;
-        if (e.message)          return e.message;
-        if (e.event)            return e.event;
-        const keys = Object.keys(e).filter(k => !['trace_id','trace_token','timestamp'].includes(k));
-        return keys.slice(0,3).map(k => `${k}: ${JSON.stringify(e[k])}`).join('  ');
+    function shortUrl(url) {
+        if (!url) return '/';
+        try {
+            return new URL(url, window.location.origin).pathname;
+        } catch {
+            return String(url);
+        }
     }
 
-    /* ── Actions ── */
     async function startSession() {
-        if (!token()) { setStatus('Please enter an API token.', 'error'); return; }
+        if (!token()) {
+            setStatus('Please enter an API token.', 'error');
+            return;
+        }
 
         const res = await fetch('/debug/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: token() })
         });
-
-        if (!res.ok) { setStatus('Unable to start trace session.', 'error'); return; }
+        if (!res.ok) {
+            setStatus('Unable to start trace session.', 'error');
+            return;
+        }
 
         const data = await res.json();
         sessionId = data.session_id;
-        eventCount = 0;
+        requestViews = [];
+        activeDetail = null;
 
-        document.getElementById('sessionId').textContent   = sessionId;
-        document.getElementById('eventCount').textContent  = 0;
-        document.getElementById('liveDot').classList.add('active');
+        document.getElementById('sessionId').textContent = sessionId;
+        document.getElementById('eventCount').textContent = '0';
         document.getElementById('btnRefresh').disabled = false;
-        setStatus(`Tracing active. API responses will include X-Debug-Trace-Id.`, 'ok');
+        setStatus('Tracing active. Click a request row to inspect details.', 'ok');
+
         startPolling();
     }
 
     async function stopSession() {
-        if (!sessionId || !token()) { setStatus('Start a session first.', 'error'); return; }
+        if (!sessionId || !token()) {
+            setStatus('Start a session first.', 'error');
+            return;
+        }
 
         const res = await fetch('/debug/stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Debug-Token': token() },
             body: JSON.stringify({ session_id: sessionId })
         });
-
-        if (!res.ok) { setStatus('Unable to stop session.', 'error'); return; }
+        if (!res.ok) {
+            setStatus('Unable to stop session.', 'error');
+            return;
+        }
 
         stopPolling();
         document.getElementById('btnRefresh').disabled = true;
         document.getElementById('btnGoLive').style.display = 'none';
-        setStatus(`Session stopped.`, 'ok');
+        setStatus('Session stopped.', 'ok');
     }
 
     function exportLogs() {
-        if (!sessionId || !token()) { setStatus('Start a session first.', 'error'); return; }
+        if (!sessionId || !token()) {
+            setStatus('Start a session first.', 'error');
+            return;
+        }
+
         window.location = `/debug/export/${sessionId}?token=${encodeURIComponent(token())}`;
     }
 
-    /* ── Polling & manual refresh ── */
     async function fetchLogs() {
         if (!sessionId || !token() || logsFetching) return false;
 
@@ -618,9 +663,8 @@
                 if (tid) params.set('trace_id', tid);
             }
 
-            const qs  = params.toString();
+            const qs = params.toString();
             const url = `/debug-dashboard/logs/${sessionId}${qs ? '?' + qs : ''}`;
-
             const res = await fetch(url, { headers: { 'X-Debug-Token': token() } });
 
             if (!res.ok) {
@@ -628,11 +672,9 @@
                 return false;
             }
 
-            const data = await res.json();
-            renderLogs(data);
-
-            const now = new Date().toLocaleTimeString('en-US', { hour12: false });
-            document.getElementById('lastPoll').textContent = now;
+            const events = await res.json();
+            renderLogs(events);
+            document.getElementById('lastPoll').textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
             return true;
         } finally {
             logsFetching = false;
@@ -645,6 +687,7 @@
             setStatus('Start a session and enter your token to refresh.', 'error');
             return;
         }
+
         stopPolling();
         await fetchLogs();
         updateGoLiveButton();
@@ -661,7 +704,7 @@
     function updateGoLiveButton() {
         const btn = document.getElementById('btnGoLive');
         if (!btn) return;
-        const show = sessionId && token() && !pollHandle;
+        const show = Boolean(sessionId && token() && !pollHandle);
         btn.style.display = show ? 'inline-flex' : 'none';
     }
 
@@ -669,74 +712,189 @@
         if (!sessionId || !token()) return;
 
         if (pollHandle) clearInterval(pollHandle);
-
         fetchLogs();
         pollHandle = setInterval(fetchLogs, 2000);
         document.getElementById('liveDot').classList.add('active');
         updateGoLiveButton();
     }
 
-    /* ── Render ── */
+    function buildRequestViews(events) {
+        const groups = new Map();
+
+        events.forEach((event, index) => {
+            const traceId = event.trace_id || `no-trace-${index}`;
+            if (!groups.has(traceId)) {
+                groups.set(traceId, {
+                    trace_id: event.trace_id || null,
+                    request: null,
+                    response: null,
+                    db: [],
+                    errors: [],
+                    all_events: []
+                });
+            }
+
+            const group = groups.get(traceId);
+            group.all_events.push(event);
+
+            const type = String(event.type || event.event || '').toLowerCase();
+            if (type === 'request') {
+                group.request = event;
+            } else if (type === 'response') {
+                group.response = event;
+            } else if (type === 'db') {
+                group.db.push(event);
+            } else if (type.includes('error') || type.includes('exception')) {
+                group.errors.push(event);
+            }
+        });
+
+        return Array.from(groups.values())
+            .filter(group => group.request || group.response || group.db.length > 0 || group.errors.length > 0)
+            .sort((a, b) => {
+                const aTs = parseTime(a.request?.timestamp || a.response?.timestamp || a.all_events[0]?.timestamp);
+                const bTs = parseTime(b.request?.timestamp || b.response?.timestamp || b.all_events[0]?.timestamp);
+                return bTs - aTs;
+            });
+    }
+
     function renderLogs(events) {
         const container = document.getElementById('logs');
-        const empty     = document.getElementById('emptyState');
-        const pill      = document.getElementById('countPill');
-        const countEl   = document.getElementById('eventCount');
+        const empty = document.getElementById('emptyState');
+        const pill = document.getElementById('countPill');
+        const countEl = document.getElementById('eventCount');
 
-        pill.textContent    = `${events.length} event${events.length !== 1 ? 's' : ''}`;
-        countEl.textContent = events.length;
+        requestViews = buildRequestViews(events);
+        pill.textContent = `${requestViews.length} request${requestViews.length !== 1 ? 's' : ''}`;
+        countEl.textContent = String(requestViews.length);
 
-        if (!events.length) {
+        Array.from(container.querySelectorAll('.log-entry')).forEach(el => el.remove());
+
+        if (!requestViews.length) {
             empty.style.display = 'flex';
-            // clear previous rows but keep empty state
-            Array.from(container.querySelectorAll('.log-entry')).forEach(el => el.remove());
             return;
         }
 
         empty.style.display = 'none';
 
-        // Re-render fully (simple approach — for large streams use virtual/diff)
-        Array.from(container.querySelectorAll('.log-entry')).forEach(el => el.remove());
-
-        events.forEach((e, i) => {
-            const type    = detectType(e);
-            const typeLabel = (e.type || e.event || type).toUpperCase().slice(0, 12);
-            const summary = summarise(e);
+        requestViews.forEach((view, i) => {
+            const req = view.request || {};
+            const res = view.response || {};
+            const ts = req.timestamp || res.timestamp;
+            const method = (req.method || 'TRACE').toUpperCase();
+            const status = res.status ? `HTTP ${res.status}` : (view.errors.length ? 'FAILED' : 'PENDING');
+            const summary = `${method} ${shortUrl(req.url || '/')}  •  ${status}  •  DB ${view.db.length}`;
 
             const row = document.createElement('div');
             row.className = 'log-entry';
             row.style.animationDelay = `${Math.min(i * 12, 200)}ms`;
             row.innerHTML = `
-                <div class="log-col log-col-ts">${fmtTime(e.timestamp)}</div>
-                <div class="log-col log-col-type type-${type}">${typeLabel}</div>
+                <div class="log-col log-col-ts">${fmtTime(ts)}</div>
+                <div class="log-col log-col-type type-request">${method}</div>
                 <div class="log-col log-col-body">${escapeHtml(summary)}</div>
             `;
-            row.addEventListener('click', () => openDetail(e));
+            row.addEventListener('click', () => openRequestDetail(view));
             container.appendChild(row);
         });
+    }
 
-        // Auto-scroll to bottom
-        container.scrollTop = container.scrollHeight;
+    function requestDetails(group) {
+        const req = group.request || {};
+        return {
+            trace_id: group.trace_id,
+            timestamp: req.timestamp || null,
+            method: req.method || null,
+            url: req.url || null,
+            headers: req.headers || {},
+            query_params: req.query_params || {},
+            body_params: req.body_params || {}
+        };
+    }
+
+    function dbDetails(group) {
+        return group.db.map(item => ({
+            timestamp: item.timestamp || null,
+            query: item.query || null,
+            duration_ms: item.duration_ms ?? null,
+            bindings: item.bindings ?? null
+        }));
+    }
+
+    function responseDetails(group) {
+        const res = group.response || {};
+        return {
+            trace_id: group.trace_id,
+            timestamp: res.timestamp || null,
+            status: res.status ?? null,
+            duration_ms: res.duration_ms ?? null,
+            headers: res.headers || {},
+            body: res.body ?? null,
+            errors: group.errors.map(item => ({
+                timestamp: item.timestamp || null,
+                type: item.type || item.event || null,
+                message: item.message || null,
+                file: item.file || null,
+                line: item.line || null
+            }))
+        };
+    }
+
+    function openRequestDetail(group) {
+        activeDetail = group;
+        const method = (group.request?.method || 'TRACE').toUpperCase();
+        const title = `${method} ${shortUrl(group.request?.url || '/')}`;
+        document.querySelector('.detail-title').textContent = title.slice(0, 52);
+        renderDetailTab('request');
+        document.getElementById('detail').classList.add('open');
+    }
+
+    function renderDetailTab(tab) {
+        if (!activeDetail) return;
+
+        const tabsHtml = `
+            <div class="detail-tabs">
+                <button type="button" class="detail-tab ${tab === 'request' ? 'active' : ''}" data-tab="request">Request Details</button>
+                <button type="button" class="detail-tab ${tab === 'db' ? 'active' : ''}" data-tab="db">DB Details</button>
+                <button type="button" class="detail-tab ${tab === 'response' ? 'active' : ''}" data-tab="response">Response Details</button>
+            </div>
+        `;
+
+        let payload;
+        if (tab === 'db') {
+            payload = dbDetails(activeDetail);
+        } else if (tab === 'response') {
+            payload = responseDetails(activeDetail);
+        } else {
+            payload = requestDetails(activeDetail);
+        }
+
+        const meta = activeDetail.trace_id ? `<div class="request-meta"><span>Trace: ${escapeHtml(activeDetail.trace_id)}</span></div>` : '';
+        document.getElementById('detailBody').innerHTML = `
+            ${tabsHtml}
+            ${meta}
+            <pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>
+        `;
+
+        document.querySelectorAll('.detail-tab').forEach(btn => {
+            btn.addEventListener('click', () => renderDetailTab(btn.dataset.tab));
+        });
     }
 
     function escapeHtml(str) {
         return String(str)
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            .replace(/"/g,'&quot;');
-    }
-
-    /* ── Detail panel ── */
-    function openDetail(event) {
-        document.getElementById('detailBody').innerHTML =
-            `<pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre>`;
-        document.getElementById('detail').classList.add('open');
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     function closeDetail() {
         document.getElementById('detail').classList.remove('open');
     }
 
-    // Close detail on Escape
+    document.getElementById('showAllTraces').addEventListener('change', () => { fetchLogs(); });
+    document.getElementById('traceIdInput').addEventListener('change', () => { fetchLogs(); });
+    document.getElementById('tokenInput').addEventListener('input', () => { updateGoLiveButton(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 </script>
 </body>

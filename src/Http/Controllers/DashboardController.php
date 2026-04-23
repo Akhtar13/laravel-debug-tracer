@@ -77,7 +77,7 @@ class DashboardController extends Controller
             return $events;
         }
 
-        $traceIdFilter = is_string($traceIdQuery) && $traceIdQuery !== '' ? $traceIdQuery : $this->latestTraceId($events);
+        $traceIdFilter = is_string($traceIdQuery) && $traceIdQuery !== '' ? $traceIdQuery : null;
         if ($traceIdFilter === null) {
             return $events;
         }
@@ -100,21 +100,6 @@ class DashboardController extends Controller
         }
 
         return false;
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $events
-     */
-    private function latestTraceId(array $events): ?string
-    {
-        $last = null;
-        foreach ($events as $e) {
-            if (isset($e['trace_id']) && is_string($e['trace_id']) && $e['trace_id'] !== '') {
-                $last = $e['trace_id'];
-            }
-        }
-
-        return $last;
     }
 
     private function resolveToken(Request $request): ?string
