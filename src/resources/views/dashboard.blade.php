@@ -256,6 +256,38 @@
         }
         .ml-auto { margin-left: auto; }
 
+        .btn-toolbar {
+            background: transparent;
+            border: 1px solid var(--border-hi);
+            color: var(--muted);
+            padding: 6px 12px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-toolbar:hover {
+            border-color: var(--accent-dim);
+            color: var(--accent);
+        }
+        .btn-toolbar:disabled {
+            opacity: .35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .btn-toolbar svg { flex-shrink: 0; }
+
+        .btn-toolbar.btn-go-live {
+            border-color: var(--accent-dim);
+            color: var(--accent);
+        }
+        .btn-toolbar.btn-go-live:hover {
+            box-shadow: var(--glow);
+        }
+
         .live-dot {
             width: 8px; height: 8px;
             background: var(--green);
@@ -447,7 +479,15 @@
     <div class="log-toolbar">
         <span class="log-toolbar-title">Event Stream</span>
         <span class="pill" id="countPill">0 events</span>
-        <div class="live-dot ml-auto" id="liveDot"></div>
+        <button type="button" class="btn-toolbar ml-auto" id="btnRefresh" onclick="refreshLogs()" disabled title="Fetch now and pause auto-refresh">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M10 6a4 4 0 1 0-1.17 2.83M10 6V3M10 6H7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Refresh
+        </button>
+        <button type="button" class="btn-toolbar btn-go-live" id="btnGoLive" onclick="startPolling()" style="display:none" title="Resume polling every 2s">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><polygon points="5,4 9,6 5,8" fill="currentColor"/></svg>
+            Go live
+        </button>
+        <div class="live-dot" id="liveDot"></div>
     </div>
 
     <!-- ── Log list ── -->
@@ -475,6 +515,7 @@
     let sessionId  = null;
     let pollHandle = null;
     let eventCount = 0;
+    let logsFetching = false;
 
     /* ── Helpers ── */
     function token() { return document.getElementById('tokenInput').value.trim(); }
@@ -533,8 +574,9 @@
         document.getElementById('sessionId').textContent   = sessionId;
         document.getElementById('eventCount').textContent  = 0;
         document.getElementById('liveDot').classList.add('active');
+        document.getElementById('btnRefresh').disabled = false;
         setStatus(`Tracing active. API responses will include X-Debug-Trace-Id.`, 'ok');
-        pollLogs();
+        startPolling();
     }
 
     async function stopSession() {
@@ -548,8 +590,9 @@
 
         if (!res.ok) { setStatus('Unable to stop session.', 'error'); return; }
 
-        clearInterval(pollHandle); pollHandle = null;
-        document.getElementById('liveDot').classList.remove('active');
+        stopPolling();
+        document.getElementById('btnRefresh').disabled = true;
+        document.getElementById('btnGoLive').style.display = 'none';
         setStatus(`Session stopped.`, 'ok');
     }
 
@@ -558,13 +601,15 @@
         window.location = `/debug/export/${sessionId}?token=${encodeURIComponent(token())}`;
     }
 
-    /* ── Polling ── */
-    function pollLogs() {
-        if (pollHandle) clearInterval(pollHandle);
+    /* ── Polling & manual refresh ── */
+    async function fetchLogs() {
+        if (!sessionId || !token() || logsFetching) return false;
 
-        pollHandle = setInterval(async () => {
-            if (!sessionId || !token()) return;
+        logsFetching = true;
+        const btn = document.getElementById('btnRefresh');
+        if (btn && !btn.disabled) btn.setAttribute('aria-busy', 'true');
 
+        try {
             const params = new URLSearchParams();
             if (document.getElementById('showAllTraces').checked) {
                 params.set('show_all', '1');
@@ -578,14 +623,57 @@
 
             const res = await fetch(url, { headers: { 'X-Debug-Token': token() } });
 
-            if (!res.ok) { setStatus('Unable to load logs.', 'error'); return; }
+            if (!res.ok) {
+                setStatus('Unable to load logs.', 'error');
+                return false;
+            }
 
             const data = await res.json();
             renderLogs(data);
 
             const now = new Date().toLocaleTimeString('en-US', { hour12: false });
             document.getElementById('lastPoll').textContent = now;
-        }, 2000);
+            return true;
+        } finally {
+            logsFetching = false;
+            if (btn) btn.removeAttribute('aria-busy');
+        }
+    }
+
+    async function refreshLogs() {
+        if (!sessionId || !token()) {
+            setStatus('Start a session and enter your token to refresh.', 'error');
+            return;
+        }
+        stopPolling();
+        await fetchLogs();
+        updateGoLiveButton();
+    }
+
+    function stopPolling() {
+        if (pollHandle) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+        }
+        document.getElementById('liveDot').classList.remove('active');
+    }
+
+    function updateGoLiveButton() {
+        const btn = document.getElementById('btnGoLive');
+        if (!btn) return;
+        const show = sessionId && token() && !pollHandle;
+        btn.style.display = show ? 'inline-flex' : 'none';
+    }
+
+    function startPolling() {
+        if (!sessionId || !token()) return;
+
+        if (pollHandle) clearInterval(pollHandle);
+
+        fetchLogs();
+        pollHandle = setInterval(fetchLogs, 2000);
+        document.getElementById('liveDot').classList.add('active');
+        updateGoLiveButton();
     }
 
     /* ── Render ── */
