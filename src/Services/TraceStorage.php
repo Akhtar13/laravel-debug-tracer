@@ -42,6 +42,22 @@ class TraceStorage
         return is_array($decoded) ? $decoded : null;
     }
 
+    public function updateSessionStatus(string $sessionId, string $status): ?array
+    {
+        $meta = $this->getSessionMeta($sessionId);
+
+        if (! $meta) {
+            return null;
+        }
+
+        $meta['status'] = $status;
+        $meta['updated_at'] = CarbonImmutable::now('UTC')->toIso8601String();
+
+        file_put_contents($this->metaPath($sessionId), json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+
+        return $meta;
+    }
+
     public function appendEvent(string $sessionId, array $event): void
     {
         $meta = $this->getSessionMeta($sessionId);

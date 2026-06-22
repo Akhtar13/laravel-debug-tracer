@@ -2,87 +2,110 @@
 
 namespace Akhtar\LaravelDebugTracer\Http\Controllers;
 
+use Akhtar\LaravelDebugTracer\Http\Requests\ExportDebugSessionRequest;
+use Akhtar\LaravelDebugTracer\Http\Requests\StartDebugSessionRequest;
+use Akhtar\LaravelDebugTracer\Http\Requests\StopDebugSessionRequest;
+use Akhtar\LaravelDebugTracer\Policies\DebugSessionPolicy;
+use Akhtar\LaravelDebugTracer\Services\DebugSessionService;
 use Akhtar\LaravelDebugTracer\Services\TraceStorage;
-use Carbon\CarbonImmutable;
+use Akhtar\LaravelDebugTracer\Support\DebugTracerResponse;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DebugSessionController extends Controller
 {
-    public function __construct(private readonly TraceStorage $storage)
-    {
+    public function __construct(
+        private readonly DebugSessionService $sessions,
+        private readonly TraceStorage $storage,
+        private readonly DebugSessionPolicy $policy,
+    ) {
     }
 
-    public function start(Request $request): JsonResponse
+    public function start(StartDebugSessionRequest $request): JsonResponse
     {
-        abort_unless(config('debug-tracer.enabled', false), 403, 'Debug tracer disabled.');
+        if (! config('debug-tracer.enabled', false)) {
+            return DebugTracerResponse::error('Debug tracer disabled.', 403);
+        }
 
-        $token = normalize_debug_token($request->input('token', $this->resolveToken($request)));
-        abort_unless($token, 422, 'Unable to resolve trace token.');
+        $token = $request->traceToken();
+        if (! $token) {
+            return DebugTracerResponse::error('Unable to resolve trace token.', 422);
+        }
 
-        $this->storage->clearAllSessions();
+        $meta = $this->sessions->start($token);
 
-        $sessionId = (string) Str::uuid();
-        $expiresAt = CarbonImmutable::now('UTC')->addMinutes((int) config('debug-tracer.session_ttl_minutes', 30));
-
-        $meta = $this->storage->createSessionMeta($sessionId, $token, 'active', $expiresAt);
-
-        return response()->json([
-            'session_id' => $sessionId,
-            'token' => $token,
+        return DebugTracerResponse::success([
+            'session_id' => $meta['session_id'],
+            'token' => $meta['token'],
             'status' => $meta['status'],
             'expires_at' => $meta['expires_at'],
-        ]);
+        ], 'Debug session started.');
     }
 
-    public function stop(Request $request): JsonResponse
+    public function stop(StopDebugSessionRequest $request): JsonResponse
     {
-        $sessionId = (string) $request->input('session_id');
+        $sessionId = $request->sessionId();
         $meta = $this->storage->getSessionMeta($sessionId);
 
-        abort_unless($meta, 404, 'Session not found.');
-        abort_if(! $this->isOwner($request, $meta), 403, 'You do not own this session.');
+        if (! $meta) {
+            return DebugTracerResponse::error('Session not found.', 404);
+        }
 
-        $this->storage->deleteSessionFiles($sessionId);
+        $token = $request->traceToken();
+        if (! $token) {
+            return DebugTracerResponse::error('Authentication token required.', 401);
+        }
 
-        return response()->json([
+        if (! $this->policy->owns($token, $meta)) {
+            return DebugTracerResponse::error('You do not own this session.', 403);
+        }
+
+        $meta = $this->sessions->stop($sessionId);
+
+        return DebugTracerResponse::success([
             'session_id' => $sessionId,
-            'status' => 'stopped',
-        ]);
+            'status' => $meta['status'] ?? 'stopped',
+        ], 'Debug session stopped.');
     }
 
-    public function export(Request $request, string $sessionId): StreamedResponse
+    public function export(ExportDebugSessionRequest $request, string $sessionId): JsonResponse|StreamedResponse
     {
         $meta = $this->storage->getSessionMeta($sessionId);
-        abort_unless($meta, 404, 'Session not found.');
-        abort_if(! $this->isOwner($request, $meta), 403, 'You do not own this session.');
 
-        $path = $this->storage->logPath($sessionId);
-        abort_unless(is_file($path), 404, 'Log file not found.');
+        if (! $meta) {
+            return DebugTracerResponse::error('Session not found.', 404);
+        }
+
+        $token = $request->traceToken();
+        if (! $token) {
+            return DebugTracerResponse::error('Authentication token required.', 401);
+        }
+
+        if (! $this->policy->owns($token, $meta)) {
+            return DebugTracerResponse::error('You do not own this session.', 403);
+        }
+
+        $path = $this->sessions->exportPath($sessionId);
+        if (! $path) {
+            return DebugTracerResponse::error('Log file not found.', 404);
+        }
 
         return response()->streamDownload(
             static function () use ($path): void {
-                echo (string) file_get_contents($path);
+                $handle = fopen($path, 'rb');
+                if ($handle === false) {
+                    return;
+                }
+
+                while (! feof($handle)) {
+                    echo (string) fread($handle, 8192);
+                }
+
+                fclose($handle);
             },
             'debug-trace-'.$sessionId.'.ndjson',
             ['Content-Type' => 'application/x-ndjson']
-        );
-    }
-
-    private function isOwner(Request $request, array $meta): bool
-    {
-        return normalize_debug_token($meta['token'] ?? null) === $this->resolveToken($request);
-    }
-
-    private function resolveToken(Request $request): ?string
-    {
-        return normalize_debug_token(
-            $request->input('token')
-                ?: $request->bearerToken()
-                ?: $request->header(config('debug-tracer.matching_header', 'X-Debug-Token'))
         );
     }
 }
